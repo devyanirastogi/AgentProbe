@@ -9,13 +9,15 @@ export default function App() {
   const [agentNames, setAgentNames]   = useState([]);
   const [endpointUrl, setEndpointUrl] = useState("");
   const [authHeader, setAuthHeader]   = useState("");
+  const [workflowName, setWorkflowName] = useState("");
   const [scores, setScores]           = useState(null);
 
-  function handleIngested(csv, agents, url, auth) {
+  function handleIngested(csv, agents, url, auth, wfName) {
     setCsvContent(csv);
     setAgentNames(agents);
     setEndpointUrl(url);
     setAuthHeader(auth);
+    setWorkflowName(wfName || "");
     setPage("attack");
   }
 
@@ -29,6 +31,7 @@ export default function App() {
     setAgentNames([]);
     setEndpointUrl("");
     setAuthHeader("");
+    setWorkflowName("");
     setScores(null);
     setPage("ingest");
   }
@@ -44,6 +47,7 @@ export default function App() {
         agentNames={agentNames}
         endpointUrl={endpointUrl}
         authHeader={authHeader}
+        workflowName={workflowName}
         onComplete={handleComplete}
         onBack={() => setPage("ingest")}
       />

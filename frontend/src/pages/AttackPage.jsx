@@ -13,7 +13,7 @@ const VC = { PASS: "var(--pass)", PARTIAL: "var(--partial)", FAIL: "var(--fail)"
 const VB = { PASS: "var(--pass-dim)", PARTIAL: "var(--partial-dim)", FAIL: "var(--fail-dim)", ERROR: "transparent" };
 const VL = { PASS: "var(--pass)", PARTIAL: "var(--partial)", FAIL: "var(--fail)", ERROR: "var(--border)" };
 
-export default function AttackPage({ csvContent, agentNames, endpointUrl, authHeader, onComplete, onBack }) {
+export default function AttackPage({ csvContent, agentNames, endpointUrl, authHeader, workflowName, onComplete, onBack }) {
   const [attacksPerType, setAttacksPerType] = useState(3);
   const [status, setStatus]   = useState("idle");
   const [events, setEvents]   = useState([]);
@@ -36,6 +36,7 @@ export default function AttackPage({ csvContent, agentNames, endpointUrl, authHe
       csv_content: csvContent,
       pipeline_url: endpointUrl,
       auth_header: authHeader,
+      workflow_name: workflowName,
     }));
     ws.onmessage = (e) => {
       const evt = JSON.parse(e.data);
@@ -62,6 +63,16 @@ export default function AttackPage({ csvContent, agentNames, endpointUrl, authHe
       <div style={S.layout}>
         {/* ── Sidebar ────────────────────────────────────────────── */}
         <aside style={S.sidebar}>
+          {/* Workflow identity */}
+          <div style={S.sideSection}>
+            <p style={S.sideLabel}>Workflow</p>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", marginTop: "0.5rem" }}>
+              {workflowName || "unknown"}
+            </div>
+          </div>
+
+          <div style={S.divider} />
+
           {/* Target endpoint */}
           <div style={S.sideSection}>
             <p style={S.sideLabel}>Target Endpoint</p>

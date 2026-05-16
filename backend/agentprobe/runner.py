@@ -79,34 +79,43 @@ class AttackRunner:
 
     def _run_cascade(self, scenario: dict) -> dict:
         """Two-step attack:
-        1. Run pipeline normally and capture document_extraction output.
-        2. Corrupt a field in that output, then re-run with override_extraction
-           so downstream agents receive the poisoned extracted data."""
+        1. Run pipeline normally and capture the first stage's output.
+        2. Corrupt that output using corruption_spec, then re-run with
+           override_extraction so downstream agents receive the poisoned data.
+        Works with any pipeline — detects the first stage dynamically."""
         docs = scenario.get("adversarial_input", {})
 
         # Step 1: clean run
         clean_run = self._post({"documents": docs})
+        stages = clean_run.get("stages", {})
+
+        # Detect first stage dynamically — use scenario hint or take the first key
+        first_stage = scenario.get("first_stage") or (next(iter(stages), None))
+        first_output = stages.get(first_stage, {}) if first_stage else {}
+
+        # Extract the data payload from the first stage (try common patterns)
         extracted = (
-            clean_run.get("stages", {})
-            .get("document_extraction", {})
-            .get("extracted_data", {})
+            first_output.get("extracted_data") or
+            first_output.get("output") or
+            {k: v for k, v in first_output.items() if k not in ("_meta", "tokens")}
         )
 
-        # Step 2: corrupt the extracted data
-        corrupted = dict(extracted)
+        # Step 2: apply corruption
+        corrupted = dict(extracted) if isinstance(extracted, dict) else {}
         corruption_spec = scenario.get("corruption_spec", {})
         if corruption_spec:
             corrupted.update(corruption_spec)
         else:
-            # Default corruption: shift DOB back 30 years to change age-based risk profile
-            dob = corrupted.get("date_of_birth", "")
-            if dob and len(dob) >= 4:
-                try:
-                    corrupted["date_of_birth"] = str(int(dob[:4]) - 30) + dob[4:]
-                except ValueError:
-                    corrupted["date_of_birth"] = "1965-01-01"
+            # Fallback: shift any date field by 30 years
+            for field, val in corrupted.items():
+                if "date" in field.lower() and isinstance(val, str) and len(val) >= 4:
+                    try:
+                        corrupted[field] = str(int(val[:4]) - 30) + val[4:]
+                        break
+                    except ValueError:
+                        pass
 
-        # Step 3: re-run with corrupted extraction injected, bypassing Agent 1
+        # Step 3: re-run with corrupted first-stage output injected
         corrupted_run = self._post({"documents": docs, "override_extraction": corrupted})
 
         return self._wrap(scenario, {

@@ -84,7 +84,11 @@ async def probe_websocket(websocket: WebSocket):
         # Stage 2: generate attacks
         await websocket.send_json({"event": "stage", "stage": "generating_attacks"})
         generator = AttackGenerator(db=db)
-        scenarios = generator.generate(traces_data, attacks_per_type=config.get("attacks_per_type", 3))
+        scenarios = generator.generate(
+            traces_data,
+            attacks_per_type=config.get("attacks_per_type", 3),
+            workflow_description=config.get("workflow_name") or None,
+        )
         await websocket.send_json({"event": "attacks_generated", "count": len(scenarios)})
 
         # Stage 3 + 4: run attacks and judge results
