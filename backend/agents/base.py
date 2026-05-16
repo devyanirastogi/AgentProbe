@@ -4,8 +4,10 @@ from typing import Any
 
 import anthropic
 from langfuse import Langfuse
+from lmnr import Laminar
 
 _langfuse = None
+_laminar_initialized = False
 
 
 def get_langfuse() -> Langfuse | None:
@@ -16,6 +18,17 @@ def get_langfuse() -> Langfuse | None:
         except Exception:
             pass
     return _langfuse
+
+
+def ensure_laminar() -> bool:
+    global _laminar_initialized
+    if not _laminar_initialized:
+        try:
+            Laminar.initialize()
+            _laminar_initialized = True
+        except Exception:
+            pass
+    return _laminar_initialized
 
 
 class BaseAgent(ABC):
@@ -36,20 +49,34 @@ class BaseAgent(ABC):
                 input=input_data,
             )
 
-        start = time.monotonic()
-        result = self._call(input_data)
-        elapsed_ms = int((time.monotonic() - start) * 1000)
+        laminar_ctx = (
+            Laminar.start_as_current_span(name=self.name, input=input_data)
+            if ensure_laminar()
+            else None
+        )
+        if laminar_ctx is not None:
+            laminar_ctx.__enter__()
 
-        result["_meta"] = {
-            "agent": self.name,
-            "latency_ms": elapsed_ms,
-            "model": self.model,
-        }
+        try:
+            start = time.monotonic()
+            result = self._call(input_data)
+            elapsed_ms = int((time.monotonic() - start) * 1000)
 
-        if span:
-            span.end(output=result)
+            result["_meta"] = {
+                "agent": self.name,
+                "latency_ms": elapsed_ms,
+                "model": self.model,
+            }
 
-        return result
+            if span:
+                span.end(output=result)
+            if laminar_ctx is not None:
+                Laminar.set_span_output(result)
+
+            return result
+        finally:
+            if laminar_ctx is not None:
+                laminar_ctx.__exit__(None, None, None)
 
     @abstractmethod
     def _call(self, input_data: dict) -> dict:
