@@ -4,14 +4,18 @@ import AttackPage from "./pages/AttackPage";
 import DashboardPage from "./pages/DashboardPage";
 
 export default function App() {
-  const [page, setPage] = useState("ingest"); // ingest | attack | dashboard
-  const [csvContent, setCsvContent] = useState(null);
-  const [agentNames, setAgentNames] = useState([]);
-  const [scores, setScores] = useState(null);
+  const [page, setPage]               = useState("ingest");
+  const [csvContent, setCsvContent]   = useState(null);
+  const [agentNames, setAgentNames]   = useState([]);
+  const [endpointUrl, setEndpointUrl] = useState("");
+  const [authHeader, setAuthHeader]   = useState("");
+  const [scores, setScores]           = useState(null);
 
-  function handleIngested(csv, agents) {
+  function handleIngested(csv, agents, url, auth) {
     setCsvContent(csv);
     setAgentNames(agents);
+    setEndpointUrl(url);
+    setAuthHeader(auth);
     setPage("attack");
   }
 
@@ -23,6 +27,8 @@ export default function App() {
   function handleReset() {
     setCsvContent(null);
     setAgentNames([]);
+    setEndpointUrl("");
+    setAuthHeader("");
     setScores(null);
     setPage("ingest");
   }
@@ -36,6 +42,8 @@ export default function App() {
       <AttackPage
         csvContent={csvContent}
         agentNames={agentNames}
+        endpointUrl={endpointUrl}
+        authHeader={authHeader}
         onComplete={handleComplete}
         onBack={() => setPage("ingest")}
       />

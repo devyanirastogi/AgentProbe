@@ -9,10 +9,13 @@ const AGENT_LABELS = {
 };
 
 export default function IngestPage({ onIngested }) {
-  const [dragOver, setDragOver]   = useState(false);
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState(null);
-  const [preview, setPreview]     = useState(null);
+  const [dragOver, setDragOver]       = useState(false);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState(null);
+  const [preview, setPreview]         = useState(null);
+  const [endpointUrl, setEndpointUrl] = useState("");
+  const [authHeader, setAuthHeader]   = useState("");
+  const [urlError, setUrlError]       = useState(null);
   const fileRef = useRef();
 
   async function handleFile(file) {
@@ -173,8 +176,63 @@ export default function IngestPage({ onIngested }) {
               <StatPill value="claude-sonnet-4-6" label="model" mono />
             </div>
 
+            {/* Endpoint configuration */}
+            <div style={{ width: "100%", borderTop: "1px solid var(--border)", paddingTop: "1.5rem", marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.875rem", textAlign: "left" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Target Pipeline Endpoint
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
+                    Endpoint URL <span style={{ color: "var(--fail)" }}>*</span>
+                  </label>
+                  <button
+                    onClick={() => { setEndpointUrl("http://localhost:8000/api/pipeline/run"); setUrlError(null); }}
+                    style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", fontFamily: "var(--mono)", fontSize: 10, padding: "0.15rem 0.5rem", cursor: "pointer" }}
+                  >
+                    use local
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={endpointUrl}
+                  onChange={(e) => { setEndpointUrl(e.target.value); setUrlError(null); }}
+                  placeholder="https://your-api.com/pipeline/run"
+                  style={S.input}
+                />
+                <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+                  Must accept POST {"{"}"documents": {"{"}"..."{"}"}{"}"} — returns {"{"}"stages": {"{"}"..."{"}"}{"}"}.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+                <label style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
+                  Authorization Header <span style={{ color: "var(--text-dim)" }}>(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={authHeader}
+                  onChange={(e) => setAuthHeader(e.target.value)}
+                  placeholder="Bearer sk-..."
+                  style={S.input}
+                />
+              </div>
+
+              {urlError && (
+                <p style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--fail)" }}>{urlError}</p>
+              )}
+            </div>
+
             {/* CTA */}
-            <button onClick={() => onIngested(preview.csvContent, orderedAgents)} style={S.cta}>
+            <button
+              onClick={() => {
+                if (!endpointUrl.trim()) { setUrlError("Endpoint URL is required."); return; }
+                if (!endpointUrl.trim().startsWith("http")) { setUrlError("URL must start with http:// or https://"); return; }
+                onIngested(preview.csvContent, orderedAgents, endpointUrl.trim(), authHeader.trim());
+              }}
+              style={S.cta}
+            >
               Start Red-Teaming →
             </button>
 
@@ -299,4 +357,5 @@ const S = {
   statPill:     { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.375rem 0.75rem", border: "1px solid var(--border)", background: "var(--surface)", fontSize: 12, color: "var(--text-muted)" },
   cta:          { width: "100%", padding: "0.875rem", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 0, fontWeight: 600, fontSize: 14, cursor: "pointer", letterSpacing: "0.01em", marginBottom: "0.75rem" },
   ghost:        { background: "transparent", border: "none", color: "var(--text-muted)", fontSize: 13, cursor: "pointer", textDecoration: "underline" },
+  input:        { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 0, padding: "0.625rem 0.75rem", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12, width: "100%", outline: "none" },
 };

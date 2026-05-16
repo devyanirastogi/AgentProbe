@@ -88,7 +88,9 @@ async def probe_websocket(websocket: WebSocket):
         await websocket.send_json({"event": "attacks_generated", "count": len(scenarios)})
 
         # Stage 3 + 4: run attacks and judge results
-        runner = AttackRunner(db=db)
+        pipeline_url = config.get("pipeline_url") or "http://localhost:8000"
+        auth_header  = config.get("auth_header") or None
+        runner = AttackRunner(pipeline_base_url=pipeline_url, auth_header=auth_header, db=db)
         judge = JudgeEvaluator(db=db)
         evaluated = []
 

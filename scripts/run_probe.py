@@ -41,7 +41,9 @@ def main():
 
     # Stage 3 + 4a: run attacks and judge
     print("[3/4] Executing attacks...")
-    runner = AttackRunner(db=db)
+    pipeline_url = os.getenv("AGENTPROBE_PIPELINE_URL", "http://localhost:8000")
+    auth_header  = os.getenv("AGENTPROBE_AUTH_HEADER", None)
+    runner = AttackRunner(pipeline_base_url=pipeline_url, auth_header=auth_header, db=db)
     judge = JudgeEvaluator(db=db)
     evaluated = []
 

@@ -6,8 +6,14 @@ PIPELINE_BASE_URL = "http://localhost:8000"
 
 
 class AttackRunner:
-    def __init__(self, pipeline_base_url: str = PIPELINE_BASE_URL, db=None):
-        self.pipeline_url = f"{pipeline_base_url}/api/pipeline/run"
+    def __init__(self, pipeline_base_url: str = PIPELINE_BASE_URL, auth_header: str | None = None, db=None):
+        # If the caller passes a full URL ending in /run, use it as-is.
+        # Otherwise append /api/pipeline/run to the base URL.
+        if pipeline_base_url.endswith("/run"):
+            self.pipeline_url = pipeline_base_url
+        else:
+            self.pipeline_url = f"{pipeline_base_url.rstrip('/')}/api/pipeline/run"
+        self.auth_header = auth_header
         self.db = db or get_db()
 
     # ------------------------------------------------------------------
@@ -141,8 +147,11 @@ class AttackRunner:
     # ------------------------------------------------------------------
 
     def _post(self, payload: dict) -> dict:
+        headers = {}
+        if self.auth_header:
+            headers["Authorization"] = self.auth_header
         with httpx.Client(timeout=120) as client:
-            resp = client.post(self.pipeline_url, json=payload)
+            resp = client.post(self.pipeline_url, json=payload, headers=headers)
             resp.raise_for_status()
             return resp.json()
 

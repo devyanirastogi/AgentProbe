@@ -13,12 +13,13 @@ const VC = { PASS: "var(--pass)", PARTIAL: "var(--partial)", FAIL: "var(--fail)"
 const VB = { PASS: "var(--pass-dim)", PARTIAL: "var(--partial-dim)", FAIL: "var(--fail-dim)", ERROR: "transparent" };
 const VL = { PASS: "var(--pass)", PARTIAL: "var(--partial)", FAIL: "var(--fail)", ERROR: "var(--border)" };
 
-export default function AttackPage({ csvContent, agentNames, onComplete, onBack }) {
+export default function AttackPage({ csvContent, agentNames, endpointUrl, authHeader, onComplete, onBack }) {
   const [attacksPerType, setAttacksPerType] = useState(3);
   const [status, setStatus]   = useState("idle");
   const [events, setEvents]   = useState([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [errorMsg, setErrorMsg] = useState(null);
+  const [errorMsg, setErrorMsg]       = useState(null);
+  const [completeEvt, setCompleteEvt] = useState(null);
   const feedRef = useRef(null);
   const wsRef   = useRef(null);
 
@@ -30,13 +31,18 @@ export default function AttackPage({ csvContent, agentNames, onComplete, onBack 
     setEvents([]); setProgress({ current: 0, total: 0 }); setErrorMsg(null); setStatus("running");
     const ws = new WebSocket("ws://localhost:8000/ws/probe");
     wsRef.current = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ attacks_per_type: attacksPerType, csv_content: csvContent }));
+    ws.onopen = () => ws.send(JSON.stringify({
+      attacks_per_type: attacksPerType,
+      csv_content: csvContent,
+      pipeline_url: endpointUrl,
+      auth_header: authHeader,
+    }));
     ws.onmessage = (e) => {
       const evt = JSON.parse(e.data);
       setEvents((prev) => [...prev, evt]);
       if (evt.event === "attacks_generated") setProgress({ current: 0, total: evt.count });
       if (evt.event === "attacking") setProgress({ current: evt.index + 1, total: evt.total });
-      if (evt.event === "complete") { setStatus("complete"); ws.close(); onComplete(evt); }
+      if (evt.event === "complete") { setStatus("complete"); setCompleteEvt(evt); ws.close(); onComplete(evt); }
       if (evt.event === "error")    { setStatus("error"); setErrorMsg(evt.message); ws.close(); }
     };
     ws.onerror = () => { setStatus("error"); setErrorMsg("Cannot connect to backend at localhost:8000"); };
@@ -56,9 +62,24 @@ export default function AttackPage({ csvContent, agentNames, onComplete, onBack 
       <div style={S.layout}>
         {/* ── Sidebar ────────────────────────────────────────────── */}
         <aside style={S.sidebar}>
+          {/* Target endpoint */}
+          <div style={S.sideSection}>
+            <p style={S.sideLabel}>Target Endpoint</p>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)", wordBreak: "break-all", marginTop: "0.5rem", lineHeight: 1.5 }}>
+              {endpointUrl || "localhost:8000"}
+            </div>
+            {authHeader && (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: "0.375rem" }}>
+                Auth: {authHeader.slice(0, 16)}…
+              </div>
+            )}
+          </div>
+
+          <div style={S.divider} />
+
           {/* Pipeline */}
           <div style={S.sideSection}>
-            <p style={S.sideLabel}>Target Pipeline</p>
+            <p style={S.sideLabel}>Agents</p>
             {agentNames.map((a, i) => (
               <div key={a} style={S.agentRow}>
                 <span style={S.agentIdx}>{i + 1}</span>
@@ -184,7 +205,7 @@ export default function AttackPage({ csvContent, agentNames, onComplete, onBack 
           {status === "complete" && (
             <button
               className="fade-in"
-              onClick={() => onComplete(events.find((e) => e.event === "complete"))}
+              onClick={() => onComplete(completeEvt)}
               style={S.completeCta}
             >
               View Results Dashboard →
