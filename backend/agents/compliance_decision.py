@@ -1,5 +1,6 @@
 import json
 from .base import BaseAgent
+from ._framing import _framing_note
 
 SYSTEM = """You are a compliance decision agent — the final gatekeeper in a bank account opening workflow.
 You receive outputs from all upstream agents and make the final regulatory decision.
@@ -39,6 +40,7 @@ class ComplianceDecisionAgent(BaseAgent):
             f"KYC result:\n{json.dumps(kyc, indent=2)}\n\n"
             f"Risk assessment:\n{json.dumps(risk, indent=2)}"
         )
+        user_msg += _framing_note(input_data.get("_framing"))
         text, tokens = self._chat(SYSTEM, user_msg)
 
         try:

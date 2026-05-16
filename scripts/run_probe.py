@@ -10,42 +10,50 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "backend", ".env"))
 
-from agents.pipeline import BankingPipeline
 from agentprobe import TraceIngester, AttackGenerator, AttackRunner, JudgeEvaluator, ReliabilityScorer
-from db import SnowflakeClient
+from db import get_db
+
 
 def main():
     workflow_id = str(uuid.uuid4())
-    db = SnowflakeClient()
-    pipeline = BankingPipeline(sandbox=True)
+    db = get_db()
 
     print("=== AgentProbe — Adversarial Red-Teaming Engine ===\n")
 
-    print("[1/4] Ingesting traces from LangFuse...")
+    # Stage 1: ingest traces (CSV file or LangFuse API)
+    print("[1/4] Ingesting traces...")
     ingester = TraceIngester(db=db)
-    traces = ingester.ingest(limit=50)
-    print(f"      {len(traces)} trace spans ingested.\n")
 
+    csv_path = os.getenv("AGENTPROBE_CSV")
+    if csv_path and os.path.exists(csv_path):
+        with open(csv_path, encoding="utf-8") as f:
+            traces = ingester.ingest_csv(f.read())
+        print(f"      {len(traces)} trace spans ingested from CSV: {csv_path}\n")
+    else:
+        traces = ingester.ingest(limit=50)
+        print(f"      {len(traces)} trace spans ingested from LangFuse API.\n")
+
+    # Stage 2: generate attacks
     print("[2/4] Generating adversarial scenarios...")
     generator = AttackGenerator(db=db)
     scenarios = generator.generate(traces, attacks_per_type=3)
     print(f"      {len(scenarios)} attack scenarios generated.\n")
 
+    # Stage 3 + 4a: run attacks and judge
     print("[3/4] Executing attacks...")
     runner = AttackRunner(db=db)
     judge = JudgeEvaluator(db=db)
-    run_results = []
     evaluated = []
 
     for i, scenario in enumerate(scenarios):
-        print(f"      [{i+1}/{len(scenarios)}] {scenario['attack_type']} → {scenario['target_agent']}", end=" ")
-        run_result = runner.run_scenario(scenario, pipeline=pipeline)
+        print(f"      [{i+1}/{len(scenarios)}] {scenario['attack_type']} → {scenario['target_agent']}", end=" ", flush=True)
+        run_result = runner.run_scenario(scenario)
         judged = judge.evaluate(scenario, run_result)
         verdict = judged.get("verdict", "?")
         print(f"→ {verdict}")
-        run_results.append(run_result)
         evaluated.append(judged)
 
+    # Stage 4b: score
     print()
     print("[4/4] Computing reliability scores...")
     scorer = ReliabilityScorer(db=db)
@@ -63,7 +71,8 @@ def main():
 
     fails = sum(1 for r in evaluated if r.get("verdict") == "FAIL")
     print(f"\n  Total: {len(evaluated)} attacks | {fails} FAIL | {len(evaluated)-fails} PASS/PARTIAL")
-    print("\nResults stored in Snowflake.")
+    print("\nResults stored in DB.")
+
 
 if __name__ == "__main__":
     main()

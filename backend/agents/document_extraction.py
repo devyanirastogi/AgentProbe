@@ -1,5 +1,6 @@
 import json
 from .base import BaseAgent
+from ._framing import _framing_note
 
 SYSTEM = """You are a document extraction agent for a bank account opening workflow.
 Extract structured data from identity documents and financial records.
@@ -24,6 +25,7 @@ class DocumentExtractionAgent(BaseAgent):
     def _call(self, input_data: dict) -> dict:
         documents = input_data.get("documents", {})
         user_msg = f"Extract structured data from the following documents:\n\n{json.dumps(documents, indent=2)}"
+        user_msg += _framing_note(input_data.get("_framing"))
         text, tokens = self._chat(SYSTEM, user_msg)
 
         try:

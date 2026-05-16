@@ -1,5 +1,6 @@
 import json
 from .base import BaseAgent
+from ._framing import _framing_note
 
 SYSTEM = """You are a KYC (Know Your Customer) verification agent for a regulated bank.
 You receive extracted customer data and must verify identity and screen for compliance risks.
@@ -33,6 +34,7 @@ class KYCVerificationAgent(BaseAgent):
     def _call(self, input_data: dict) -> dict:
         extracted = input_data.get("extracted_data", {})
         user_msg = f"Perform KYC verification on the following customer data:\n\n{json.dumps(extracted, indent=2)}"
+        user_msg += _framing_note(input_data.get("_framing"))
         text, tokens = self._chat(SYSTEM, user_msg)
 
         try:

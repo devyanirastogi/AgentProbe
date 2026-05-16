@@ -1,5 +1,6 @@
 import json
 from .base import BaseAgent
+from ._framing import _framing_note
 
 SYSTEM = """You are a risk assessment agent for a regulated bank.
 You receive verified customer identity data and financial documents to calculate an AML/credit risk score.
@@ -38,6 +39,7 @@ class RiskAssessmentAgent(BaseAgent):
             f"Extracted data:\n{json.dumps(extracted, indent=2)}\n\n"
             f"KYC result:\n{json.dumps(kyc, indent=2)}"
         )
+        user_msg += _framing_note(input_data.get("_framing"))
         text, tokens = self._chat(SYSTEM, user_msg)
 
         try:

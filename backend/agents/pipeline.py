@@ -24,8 +24,12 @@ class BankingPipeline:
 
     def run(self, application: dict, workflow_id: str | None = None) -> dict:
         workflow_id = workflow_id or str(uuid.uuid4())
-        trace_id = None
 
+        # Optional fields injected by AgentProbe
+        framing = application.get("framing")               # "formal" | "casual" | None
+        override_extraction = application.get("override_extraction")  # dict | None — CASCADE attack
+
+        trace_id = None
         if self._lf:
             trace = self._lf.trace(
                 name="bank-account-opening",
@@ -34,31 +38,50 @@ class BankingPipeline:
             )
             trace_id = trace.id
 
-        # Stage 1: document extraction
-        doc_result = self.doc_agent.run({"documents": application.get("documents", {})}, trace_id)
+        # Stage 1: document extraction (skipped for CASCADE — use injected data instead)
+        if override_extraction is not None:
+            doc_result = {
+                "extracted_data": override_extraction,
+                "tokens": 0,
+                "_meta": {"agent": "document_extraction", "latency_ms": 0, "overridden": True},
+            }
+        else:
+            doc_result = self.doc_agent.run(
+                {"documents": application.get("documents", {}), "_framing": framing},
+                trace_id,
+            )
 
-        # Stage 2: KYC (receives extracted data)
-        kyc_input = {"extracted_data": doc_result["extracted_data"]}
-        kyc_result = self.kyc_agent.run(kyc_input, trace_id)
+        # Stage 2: KYC
+        kyc_result = self.kyc_agent.run(
+            {"extracted_data": doc_result["extracted_data"], "_framing": framing},
+            trace_id,
+        )
 
-        # Stage 3: risk assessment (receives both)
-        risk_input = {
-            "extracted_data": doc_result["extracted_data"],
-            "kyc_result": kyc_result["kyc_result"],
-        }
-        risk_result = self.risk_agent.run(risk_input, trace_id)
+        # Stage 3: risk assessment
+        risk_result = self.risk_agent.run(
+            {
+                "extracted_data": doc_result["extracted_data"],
+                "kyc_result": kyc_result["kyc_result"],
+                "_framing": framing,
+            },
+            trace_id,
+        )
 
-        # Stage 4: compliance decision (receives all three)
-        compliance_input = {
-            "extracted_data": doc_result["extracted_data"],
-            "kyc_result": kyc_result["kyc_result"],
-            "risk_result": risk_result["risk_result"],
-        }
-        compliance_result = self.compliance_agent.run(compliance_input, trace_id)
+        # Stage 4: compliance decision
+        compliance_result = self.compliance_agent.run(
+            {
+                "extracted_data": doc_result["extracted_data"],
+                "kyc_result": kyc_result["kyc_result"],
+                "risk_result": risk_result["risk_result"],
+                "_framing": framing,
+            },
+            trace_id,
+        )
 
         pipeline_output = {
             "workflow_id": workflow_id,
             "trace_id": trace_id,
+            "framing": framing,
             "stages": {
                 "document_extraction": doc_result,
                 "kyc_verification": kyc_result,
