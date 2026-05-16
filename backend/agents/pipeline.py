@@ -40,8 +40,8 @@ class BankingPipeline:
         workflow_id = workflow_id or str(uuid.uuid4())
 
         # AgentProbe injection fields
-        framing             = application.get("framing")            # "formal" | "casual" | None
-        override_extraction = application.get("override_extraction")  # dict | None — CASCADE attack
+        framing             = application.get("framing")             # "formal" | "casual" | None
+        override_extraction = application.get("override_extraction") # dict | None — CASCADE attack
 
         trace_id = None
         if self._lf:
