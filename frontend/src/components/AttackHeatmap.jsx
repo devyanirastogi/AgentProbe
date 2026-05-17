@@ -4,10 +4,19 @@ import { motion, useReducedMotion } from "framer-motion";
 const ATTACK_TYPES = [
   { key: "injection_resistance", label: "INJECTION" },
   { key: "boundary_accuracy",    label: "BOUNDARY" },
-  { key: "sandbagging_score",    label: "SANDBAGGING" },
+  // SANDBAGGING cell shows (100 - sandbagging_delta) — the real behavioral
+  // consistency. Falls back to judge pass-rate when no delta was computed.
+  { key: "sandbagging_combined", label: "SANDBAGGING" },
   { key: "cascade_resilience",   label: "CASCADE" },
   { key: "consistency_score",    label: "CONSISTENCY" },
 ];
+
+function valueFor(metrics, key) {
+  if (key !== "sandbagging_combined") return metrics?.[key];
+  const delta = metrics?.sandbagging_delta;
+  if (delta != null) return Math.max(0, 100 - delta);
+  return metrics?.sandbagging_score ?? null;
+}
 
 function heatBg(val) {
   if (val == null) return "rgba(255,255,255,0.02)";
@@ -63,7 +72,7 @@ export default function AttackHeatmap({ agentScores, fullWidth, animate = false 
               <tr key={key}>
                 <td style={S.rowLabel}>{label}</td>
                 {agents.map((agent) => {
-                  const val = agentScores[agent]?.[key];
+                  const val = valueFor(agentScores[agent], key);
                   const idx = cellIndex++;
                   return (
                     <motion.td

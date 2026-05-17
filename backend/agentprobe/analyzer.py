@@ -97,14 +97,14 @@ class WorkflowAnalyzer:
     def analyze_traces(self, traces: list[dict], workflow_name: str = "workflow") -> WorkflowSchema:
         """Pure function over a list of trace rows shaped like ingester.py emits."""
         by_agent: dict[str, list[dict]] = defaultdict(list)
-        by_workflow_order: dict[str, list[str]] = defaultdict(list)  # workflow_id -> [agent in arrival order]
+        by_workflow_rows: dict[str, list[dict]] = defaultdict(list)  # workflow_id -> rows in that workflow
 
         for t in traces:
             agent = t.get("agent_name") or "unknown"
             by_agent[agent].append(t)
             wf = t.get("workflow_id")
-            if wf and agent not in by_workflow_order[wf]:
-                by_workflow_order[wf].append(agent)
+            if wf:
+                by_workflow_rows[wf].append(t)
 
         nodes: dict[str, NodeSchema] = {}
         for agent, rows in by_agent.items():
@@ -121,7 +121,7 @@ class WorkflowAnalyzer:
                 sample_count=len(rows),
             )
 
-        edges = self._infer_edges(by_workflow_order, nodes)
+        edges = self._infer_edges_from_data_flow(by_workflow_rows, nodes)
         entry = self._roots(nodes.keys(), edges)
         terminal = self._leaves(nodes.keys(), edges)
 
@@ -228,25 +228,76 @@ class WorkflowAnalyzer:
             return json.dumps(v, sort_keys=True, default=str)
         return v
 
-    def _infer_edges(
+    def _infer_edges_from_data_flow(
         self,
-        by_workflow_order: dict[str, list[str]],
+        by_workflow_rows: dict[str, list[dict]],
         nodes: dict[str, NodeSchema],
     ) -> list[Edge]:
-        """Two signals: temporal order within a workflow run, and output->input field overlap."""
-        adjacency: dict[tuple[str, str], int] = defaultdict(int)
-        for order in by_workflow_order.values():
-            for src, dst in zip(order, order[1:]):
-                if src != dst:
-                    adjacency[(src, dst)] += 1
+        """Derive edges from data-flow within a workflow run, NOT temporal order.
+
+        For each workflow (one pipeline run), look at every (src, dst) pair of
+        agents. An edge src→dst exists if dst's input dict contains at least
+        one top-level key whose value is structurally identical to a top-level
+        value in src's output dict. This catches:
+          - direct passes: clinical takes `extracted_data` whose value == intake's output
+          - fan-out: doc_extraction feeds 3 downstream agents the same `extracted_data`
+          - fan-in: treatment_authorization receives outputs from 4 upstream agents
+          - parallel branches: branches don't share edges with each other
+        Falls back to top-level key overlap when value comparison can't be done
+        (e.g. one side wasn't a dict).
+
+        This replaces the previous zip(order, order[1:]) heuristic which
+        collapsed any DAG into a sequential chain regardless of real structure.
+        """
+        SKIP_KEYS = {"_meta", "_framing", "tokens", "framing"}
+        adjacency_fields: dict[tuple[str, str], set[str]] = defaultdict(set)
+        adjacency_count: dict[tuple[str, str], int] = defaultdict(int)
+
+        for rows in by_workflow_rows.values():
+            agent_outputs: dict[str, dict] = {}
+            agent_inputs: dict[str, dict] = {}
+            for r in rows:
+                a = r.get("agent_name") or "unknown"
+                out = self._loadj(r.get("output"))
+                inp = self._loadj(r.get("input"))
+                if isinstance(out, dict):
+                    agent_outputs[a] = out
+                if isinstance(inp, dict):
+                    agent_inputs[a] = inp
+
+            for dst, dst_in in agent_inputs.items():
+                dst_in_clean = {k: v for k, v in dst_in.items() if k not in SKIP_KEYS}
+                for src, src_out in agent_outputs.items():
+                    if src == dst:
+                        continue
+                    src_out_clean = {k: v for k, v in src_out.items() if k not in SKIP_KEYS}
+                    matched: set[str] = set()
+                    for k, v in src_out_clean.items():
+                        if k in dst_in_clean and self._equiv(dst_in_clean[k], v):
+                            matched.add(k)
+                    # Fallback: if value comparison found nothing, accept top-level
+                    # key overlap on non-trivial keys as a weaker signal.
+                    if not matched:
+                        matched = set(src_out_clean) & set(dst_in_clean)
+                        matched -= {"reasoning", "summary"}  # generic noise keys
+                    if matched:
+                        adjacency_fields[(src, dst)].update(matched)
+                        adjacency_count[(src, dst)] += 1
 
         edges: list[Edge] = []
-        for (src, dst), count in adjacency.items():
+        for (src, dst), count in adjacency_count.items():
             if count < 1:
                 continue
-            shared = self._shared_fields(nodes.get(src), nodes.get(dst))
-            edges.append(Edge(src=src, dst=dst, fields_passed=shared))
+            edges.append(Edge(src=src, dst=dst, fields_passed=sorted(adjacency_fields[(src, dst)])))
         return edges
+
+    @staticmethod
+    def _equiv(a, b) -> bool:
+        """Structural equality for nested JSON values. Dict-order insensitive."""
+        try:
+            return json.dumps(a, sort_keys=True, default=str) == json.dumps(b, sort_keys=True, default=str)
+        except Exception:
+            return a == b
 
     @staticmethod
     def _shared_fields(src: NodeSchema | None, dst: NodeSchema | None) -> list[str]:

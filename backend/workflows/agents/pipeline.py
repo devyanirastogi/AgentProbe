@@ -1,11 +1,10 @@
 import uuid
-# from langfuse import Langfuse
-# from lmnr import Laminar
 
 from .document_extraction import DocumentExtractionAgent
 from .kyc_verification import KYCVerificationAgent
 from .risk_assessment import RiskAssessmentAgent
 from .compliance_decision import ComplianceDecisionAgent
+from .._telemetry import tag_workflow
 
 
 class BankingPipeline:
@@ -18,6 +17,7 @@ class BankingPipeline:
         self.risk_agent = RiskAssessmentAgent(sandbox=sandbox)
         self.compliance_agent = ComplianceDecisionAgent(sandbox=sandbox)
 
+    @tag_workflow("banking")
     def run(self, application: dict, workflow_id: str | None = None) -> dict:
         workflow_id = workflow_id or str(uuid.uuid4())
 

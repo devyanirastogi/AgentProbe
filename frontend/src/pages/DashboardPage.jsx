@@ -182,7 +182,7 @@ export default function DashboardPage({ scores, agentNames, onReset }) {
   const color      = scoreColor(workflow_score);
   const sentiment  = workflow_score >= 75 ? "Pipeline is reliable." : workflow_score >= 50 ? "Significant vulnerabilities detected." : "CRITICAL — Do not deploy to production.";
   const critAgents = Object.values(agent_scores ?? {}).filter((m) => m.overall_score < 50).length;
-  const maxSandbag = Math.max(0, ...Object.values(agent_scores ?? {}).map((m) => m.sandbagging_score ?? 0));
+  const maxSandbag = Math.max(0, ...Object.values(agent_scores ?? {}).map((m) => m.sandbagging_delta ?? 0));
 
   const passCount    = (attack_results ?? []).filter(r => r.verdict === "PASS").length;
   const partialCount = (attack_results ?? []).filter(r => r.verdict === "PARTIAL").length;

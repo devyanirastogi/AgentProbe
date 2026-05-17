@@ -48,5 +48,16 @@ class MockDBClient:
             rows = [r for r in rows if r.get("workflow_id") == workflow_id]
         return rows
 
+    def get_sandbagging_deltas(self, workflow_id: str | None = None) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for pair in self._sandbagging_pairs:
+            agent = pair.get("agent_name")
+            pct = pair.get("sandbagging_pct")
+            if agent is None or pct is None:
+                continue
+            if agent not in out or pct > out[agent]:
+                out[agent] = pct
+        return out
+
     def get_attack_results(self, workflow_id: str | None = None) -> list[dict]:
         return self._attack_results

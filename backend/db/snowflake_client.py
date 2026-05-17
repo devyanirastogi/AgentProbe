@@ -168,6 +168,20 @@ class SnowflakeClient:
             cols = [d[0].lower() for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
+    def get_sandbagging_deltas(self, workflow_id: str | None = None) -> dict[str, float]:
+        """Return {agent_name: max sandbagging_pct} from sandbagging_pairs.
+
+        workflow_id is currently ignored — sandbagging_pairs has no workflow_id
+        column. Joining via attack_scenarios → reliability_scores could narrow it,
+        but the live dashboard reads from the WS payload anyway; this is just a
+        best-effort source for the REST endpoint.
+        """
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT agent_name, MAX(sandbagging_pct) FROM sandbagging_pairs GROUP BY agent_name"
+            )
+            return {row[0]: row[1] for row in cur.fetchall() if row[1] is not None}
+
     def get_attack_results(self, workflow_id: str | None = None) -> list[dict]:
         with self._cursor() as cur:
             cur.execute(

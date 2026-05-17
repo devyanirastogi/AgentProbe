@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run 20+ clean applications through the banking pipeline to generate LangFuse traces."""
+"""Run 20+ clean applications through the banking pipeline to generate traces."""
 import json
 import random
 import sys
@@ -10,7 +10,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "backend", ".env"))
 
-from agents.pipeline import BankingPipeline
+# Initialize LangFuse before importing the pipeline so observations have a
+# live client to send to.
+from workflows._telemetry import init_langfuse, flush_langfuse
+init_langfuse()
+
+from workflows.agents.pipeline import BankingPipeline
 
 NAMES = [
     "Alice Zhang", "Bob Okonkwo", "Carlos Mendez", "Diana Patel",
@@ -65,6 +70,7 @@ def main():
         decision = result.get("final_decision", "UNKNOWN")
         print(f"  [{i+1}/{len(NAMES)}] {name}: {decision}")
 
+    flush_langfuse()
     print("Done. Traces should now appear in LangFuse.")
 
 if __name__ == "__main__":
