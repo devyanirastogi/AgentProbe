@@ -455,18 +455,18 @@ export default function DashboardPage({ scores, agentNames, onReset }) {
 }
 
 const S = {
-  page:       { display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg)", overflow: "hidden" },
+  page:       { display: "flex", flexDirection: "column", minHeight: "100vh", background: "var(--bg)", overflowY: "auto" },
 
   hero:       { position: "relative", padding: "2rem 2.5rem 1.75rem", borderBottom: "1px solid var(--border)", flexShrink: 0, overflow: "hidden" },
   glow:       { position: "absolute", top: "30%", left: "35%", transform: "translate(-50%, -50%)", width: 500, height: 250, background: "radial-gradient(ellipse, rgba(124,58,237,0.12) 0%, transparent 70%)", pointerEvents: "none" },
   heroLayout: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "2rem" },
   heroEyebrow:{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "0.625rem" },
 
-  tabBar:     { display: "flex", alignItems: "center", padding: "0 1.5rem", borderBottom: "1px solid var(--border)", flexShrink: 0 },
+  tabBar:     { display: "flex", alignItems: "center", padding: "0 1.5rem", borderBottom: "1px solid var(--border)", flexShrink: 0, position: "sticky", top: 0, background: "var(--bg)", zIndex: 10 },
   tabBtn:     { fontFamily: "var(--mono)", fontSize: 12, padding: "0.75rem 1rem", background: "transparent", border: "none", borderBottom: "2px solid transparent", cursor: "pointer", transition: "color 0.1s, border-color 0.1s", marginBottom: "-1px" },
   newProbeBtn:{ fontFamily: "var(--mono)", fontSize: 11, padding: "0.375rem 0.75rem", background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: "pointer" },
 
-  content:    { flex: 1, overflowY: "auto", padding: "1.5rem" },
+  content:    { flex: 1, padding: "1.5rem" },
 
   metricGrid: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1px", background: "var(--border)" },
   metricCard: { background: "var(--bg)", padding: "1.5rem", boxShadow: "inset 0 0 0 0 transparent" },
