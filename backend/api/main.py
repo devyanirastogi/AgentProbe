@@ -135,7 +135,7 @@ async def probe_websocket(websocket: WebSocket):
         if csv_content:
             traces_data = ingester.ingest_csv(csv_content)
         else:
-            traces_data = ingester.ingest(limit=config.get("trace_limit", 50))
+            traces_data = db.get_traces(workflow_id=workflow_id, limit=config.get("trace_limit", 50))
 
         await websocket.send_json({"event": "traces_ingested", "count": len(traces_data)})
 

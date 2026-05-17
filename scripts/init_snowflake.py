@@ -19,6 +19,9 @@ def main():
         account=os.environ["SNOWFLAKE_ACCOUNT"],
         user=os.environ["SNOWFLAKE_USER"],
         password=os.environ["SNOWFLAKE_PASSWORD"],
+        database=os.environ["SNOWFLAKE_DATABASE"],
+        schema=os.environ["SNOWFLAKE_SCHEMA"],
+        warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
         role=os.getenv("SNOWFLAKE_ROLE"),
     )
 
