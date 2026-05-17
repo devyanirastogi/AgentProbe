@@ -292,6 +292,10 @@ function FeedRow({ evt }) {
     );
   }
 
+  if (evt.event === "attacking") {
+    return <AttackingRow scenario={evt.scenario} index={evt.index} total={evt.total} />;
+  }
+
   if (evt.event === "traces_ingested") {
     return <div className="slide-in" style={S.infoRow}>Ingested {evt.count} trace spans</div>;
   }
@@ -299,6 +303,104 @@ function FeedRow({ evt }) {
     return <div className="slide-in" style={S.infoRow}>Generated {evt.count} adversarial scenarios</div>;
   }
   return null;
+}
+
+const ATTACK_COLORS = {
+  INJECTION:   "#a855f7",
+  SANDBAGGING: "#06b6d4",
+  BOUNDARY:    "#f59e0b",
+  CASCADE:     "#ef4444",
+  CONSISTENCY: "#22c55e",
+};
+
+function AttackingRow({ scenario, index, total }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const attackType  = scenario?.attack_type ?? "UNKNOWN";
+  const target      = scenario?.target_node_id ?? scenario?.target_agent ?? "?";
+  const description = scenario?.description ?? "";
+  const adversarial = scenario?.adversarial_input;
+  const corruption  = scenario?.corruption_spec;
+  const injectionP  = scenario?.injection_path;
+  const color = ATTACK_COLORS[attackType] || "var(--accent)";
+
+  // Build a tiny call-shape hint so the user knows what the runner will do.
+  let shapeHint = "1 POST";
+  if (attackType === "SANDBAGGING") shapeHint = "2 POSTs (formal + casual)";
+  else if (attackType === "CASCADE") shapeHint = "2 POSTs (clean + corrupted)";
+  else if (Array.isArray(adversarial)) shapeHint = `${adversarial.length} POSTs (variants)`;
+
+  const previewJSON = (() => {
+    try { return JSON.stringify(adversarial, null, 2); }
+    catch { return String(adversarial); }
+  })();
+  const truncated = previewJSON.length > 220 && !expanded ? previewJSON.slice(0, 220) + " …" : previewJSON;
+
+  return (
+    <div className="slide-in" style={{
+      ...S.resultRow,
+      borderLeft: `3px solid ${color}`,
+      flexDirection: "column",
+      alignItems: "stretch",
+      gap: "0.4rem",
+      padding: "0.6rem 1rem",
+    }}>
+      {/* Header line */}
+      <div style={{ display: "flex", gap: "0.625rem", alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "var(--mono)", fontWeight: 700, fontSize: 10, color, padding: "0.1rem 0.4rem", border: `1px solid ${color}`, letterSpacing: "0.05em" }}>
+          {attackType}
+        </span>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+          [{index + 1}/{total}]
+        </span>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>
+          → {target}
+        </span>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginLeft: "auto" }}>
+          {shapeHint}
+        </span>
+      </div>
+
+      {/* Description */}
+      {description && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.45, paddingLeft: 4 }}>
+          {description}
+        </div>
+      )}
+
+      {/* Field path / corruption hint for CASCADE & INJECTION */}
+      {(injectionP || corruption) && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", paddingLeft: 4 }}>
+          {injectionP && <>injection_path: <span style={{ color }}>{injectionP}</span></>}
+          {corruption && (
+            <div>corruption_spec: <span style={{ color: "var(--fail)" }}>{JSON.stringify(corruption)}</span></div>
+          )}
+        </div>
+      )}
+
+      {/* Payload preview */}
+      <div style={{ paddingLeft: 4 }}>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            background: "transparent", border: "none", padding: 0, cursor: "pointer",
+            fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+            textTransform: "uppercase", letterSpacing: "0.06em",
+          }}
+        >
+          {expanded ? "▾ payload" : "▸ payload"}
+        </button>
+        <pre style={{
+          margin: "0.25rem 0 0", padding: "0.5rem 0.625rem",
+          background: "rgba(0,0,0,0.25)", border: "1px solid var(--border)",
+          fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--text)",
+          lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word",
+          maxHeight: expanded ? "none" : 120, overflow: "auto",
+        }}>
+          {truncated}
+        </pre>
+      </div>
+    </div>
+  );
 }
 
 function EndpointCallRow({ call }) {
