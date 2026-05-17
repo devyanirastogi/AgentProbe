@@ -3,6 +3,8 @@
 Per-attack handlers translate the structured scenarios emitted by the
 per-type subgenerators into one or more HTTP calls against the SUT.
 """
+import time
+
 import httpx
 
 from db import SnowflakeClient
@@ -32,6 +34,7 @@ class AttackRunner:
 
     def run_scenario(self, scenario: dict) -> dict:
         """Dispatch to the correct attack handler and return a result dict."""
+        self._last_calls: list[dict] = []  # populated by _post; consumed by _wrap
         attack_type = scenario.get("attack_type", "")
         dispatch = {
             "INJECTION": self._run_injection,
@@ -158,13 +161,36 @@ class AttackRunner:
     # ------------------------------------------------------------------
 
     def _post(self, payload: dict) -> dict:
+        """POST to the configured pipeline URL.
+
+        Records (url, status, latency_ms, payload_keys, error) on self._last_calls
+        so callers (and the live feed) can verify the attack actually hit the SUT.
+        """
         headers = {}
         if self.auth_header:
             headers["Authorization"] = self.auth_header
-        with httpx.Client(timeout=120) as client:
-            resp = client.post(self.pipeline_url, json=payload, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
+
+        call_meta = {
+            "url": self.pipeline_url,
+            "payload_keys": sorted(payload.keys()),
+            "status": None,
+            "latency_ms": None,
+            "error": None,
+        }
+        start = time.perf_counter()
+        try:
+            with httpx.Client(timeout=120) as client:
+                resp = client.post(self.pipeline_url, json=payload, headers=headers)
+                call_meta["status"] = resp.status_code
+                call_meta["latency_ms"] = int((time.perf_counter() - start) * 1000)
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as e:
+            call_meta["latency_ms"] = int((time.perf_counter() - start) * 1000)
+            call_meta["error"] = str(e)[:200]
+            raise
+        finally:
+            self._last_calls.append(call_meta)
 
     @staticmethod
     def _extract_terminal_decision(response: dict) -> object:
@@ -216,6 +242,7 @@ class AttackRunner:
             "scenario_id": scenario.get("scenario_id"),
             "agent_name": target,
             "actual_output": actual_output,
+            "endpoint_calls": list(getattr(self, "_last_calls", [])),
             "verdict": "PENDING",
             "judge_reasoning": None,
         }
@@ -226,6 +253,7 @@ class AttackRunner:
             "scenario_id": scenario.get("scenario_id"),
             "agent_name": target,
             "actual_output": {"error": error},
+            "endpoint_calls": list(getattr(self, "_last_calls", [])),
             "verdict": "ERROR",
             "judge_reasoning": error,
         }

@@ -34,6 +34,64 @@ app.include_router(attacks.router, prefix="/api/attacks", tags=["attacks"])
 app.include_router(scores.router, prefix="/api/scores", tags=["scores"])
 
 
+@app.post("/api/probe/test-endpoint")
+async def test_endpoint(req: dict):
+    """Preflight reachability check for the user's target pipeline URL.
+
+    Body: {"url": str, "auth_header": str | None}
+    Returns: {"ok": bool, "status": int|None, "latency_ms": int, "error": str|None,
+              "url": str, "response_keys": list[str]|None}
+
+    Sends a minimal probe POST `{"documents": {}}` so the user can confirm the
+    URL responds (and that auth, if any, is accepted) before launching a full
+    attack sweep against it.
+    """
+    import time
+    import httpx
+
+    url = (req.get("url") or "").strip()
+    if not url:
+        return {"ok": False, "error": "url is required", "url": url, "status": None, "latency_ms": 0, "response_keys": None}
+    if url.endswith("/run") is False and "/api/pipeline/run" not in url:
+        # Allow base URLs; mirror the runner's normalization for clarity.
+        url = f"{url.rstrip('/')}/api/pipeline/run"
+
+    headers = {}
+    auth = req.get("auth_header")
+    if auth:
+        headers["Authorization"] = auth
+
+    start = time.perf_counter()
+    try:
+        with httpx.Client(timeout=15) as client:
+            resp = client.post(url, json={"documents": {}}, headers=headers)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        body_keys = None
+        try:
+            body = resp.json()
+            if isinstance(body, dict):
+                body_keys = sorted(body.keys())
+        except Exception:
+            pass
+        return {
+            "ok": 200 <= resp.status_code < 500,  # 4xx still means "reachable"
+            "status": resp.status_code,
+            "latency_ms": latency_ms,
+            "error": None if resp.status_code < 400 else f"HTTP {resp.status_code}",
+            "url": url,
+            "response_keys": body_keys,
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "status": None,
+            "latency_ms": int((time.perf_counter() - start) * 1000),
+            "error": str(e)[:300],
+            "url": url,
+            "response_keys": None,
+        }
+
+
 @app.post("/api/pipeline/run")
 async def run_pipeline(application: dict):
     """Run the 4-agent banking pipeline.
@@ -108,7 +166,20 @@ async def probe_websocket(websocket: WebSocket):
             run_result = runner.run_scenario(scenario)
             judged = judge.evaluate(scenario, run_result)
             evaluated.append(judged)
-            await websocket.send_json({"event": "result", "index": i, "result": judged})
+            # Echo scenario summary alongside the judged result so the live feed
+            # can show attack type, target node, and description per row.
+            await websocket.send_json({
+                "event": "result",
+                "index": i,
+                "result": {
+                    **judged,
+                    "scenario": {
+                        "attack_type": scenario.get("attack_type"),
+                        "target_node_id": scenario.get("target_node_id") or scenario.get("target_agent"),
+                        "description": scenario.get("description"),
+                    },
+                },
+            })
 
         # Stage 4b: score
         await websocket.send_json({"event": "stage", "stage": "scoring"})

@@ -244,22 +244,35 @@ function FeedRow({ evt }) {
     const agent   = evt.result?.agent_name ?? "";
     const type    = evt.result?.scenario?.attack_type ?? "";
     const reason  = evt.result?.judge_reasoning ?? "";
+    const calls   = evt.result?.endpoint_calls ?? [];
     return (
       <div className="slide-in" style={{
         ...S.resultRow,
         borderLeft: `3px solid ${VL[verdict] ?? "transparent"}`,
         background: VB[verdict] ?? "transparent",
+        flexDirection: "column",
+        alignItems: "stretch",
+        gap: "0.35rem",
       }}>
-        <span style={{ fontFamily: "var(--mono)", fontWeight: 700, fontSize: 11, color: VC[verdict], width: 52, flexShrink: 0 }}>
-          {verdict}
-        </span>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", width: 140, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {agent}
-        </span>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", width: 100, flexShrink: 0 }}>
-          {type}
-        </span>
-        <span style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{reason}</span>
+        <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
+          <span style={{ fontFamily: "var(--mono)", fontWeight: 700, fontSize: 11, color: VC[verdict], width: 52, flexShrink: 0 }}>
+            {verdict}
+          </span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", width: 140, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {agent}
+          </span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", width: 100, flexShrink: 0 }}>
+            {type}
+          </span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{reason}</span>
+        </div>
+        {calls.length > 0 && (
+          <div style={{ paddingLeft: 52, display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+            {calls.map((c, i) => (
+              <EndpointCallRow key={i} call={c} />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -271,6 +284,36 @@ function FeedRow({ evt }) {
     return <div className="slide-in" style={S.infoRow}>Generated {evt.count} adversarial scenarios</div>;
   }
   return null;
+}
+
+function EndpointCallRow({ call }) {
+  const ok = call.status != null && call.status < 400;
+  const statusColor = call.error
+    ? "var(--fail)"
+    : ok
+      ? "var(--pass)"
+      : call.status != null
+        ? "var(--partial)"
+        : "var(--text-dim)";
+  // Short path: last segment of url
+  let shortUrl = call.url || "";
+  try {
+    const u = new URL(call.url);
+    shortUrl = `${u.host}${u.pathname}`;
+  } catch { /* keep raw */ }
+  return (
+    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
+      <span style={{ color: statusColor, width: 60, flexShrink: 0 }}>
+        {call.error ? "ERR" : call.status != null ? `HTTP ${call.status}` : "no resp"}
+      </span>
+      <span style={{ color: "var(--text-muted)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        POST → {shortUrl}
+      </span>
+      {call.latency_ms != null && (
+        <span style={{ color: "var(--text-dim)" }}>{call.latency_ms}ms</span>
+      )}
+    </div>
+  );
 }
 
 const S = {

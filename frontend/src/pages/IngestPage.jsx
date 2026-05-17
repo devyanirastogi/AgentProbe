@@ -8,7 +8,30 @@ export default function IngestPage({ onIngested }) {
   const [endpointUrl, setEndpointUrl] = useState("");
   const [authHeader, setAuthHeader]   = useState("");
   const [urlError, setUrlError]       = useState(null);
+  const [testing, setTesting]         = useState(false);
+  const [testResult, setTestResult]   = useState(null);
   const fileRef = useRef();
+
+  async function testEndpoint() {
+    if (!endpointUrl.trim()) { setUrlError("Endpoint URL is required."); return; }
+    if (!endpointUrl.trim().startsWith("http")) { setUrlError("URL must start with http:// or https://"); return; }
+    setUrlError(null);
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("http://localhost:8000/api/probe/test-endpoint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: endpointUrl.trim(), auth_header: authHeader.trim() || null }),
+      });
+      const data = await res.json();
+      setTestResult(data);
+    } catch (e) {
+      setTestResult({ ok: false, error: "Backend unreachable: " + e.message, url: endpointUrl.trim(), status: null, latency_ms: 0 });
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function handleFile(file) {
     if (!file || !file.name.endsWith(".csv")) {
@@ -231,6 +254,47 @@ export default function IngestPage({ onIngested }) {
               </div>
 
               {urlError && <p style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--fail)" }}>{urlError}</p>}
+
+              {/* Test-endpoint button + reachability result */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.25rem" }}>
+                <button
+                  onClick={testEndpoint}
+                  disabled={testing}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    color: testing ? "var(--text-dim)" : "var(--accent)",
+                    fontFamily: "var(--mono)",
+                    fontSize: 11,
+                    padding: "0.35rem 0.75rem",
+                    cursor: testing ? "wait" : "pointer",
+                  }}
+                >
+                  {testing ? "testing..." : "Test endpoint"}
+                </button>
+                {testResult && (
+                  <span style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 11,
+                    color: testResult.ok ? "var(--pass)" : "var(--fail)",
+                  }}>
+                    {testResult.ok ? "✓" : "✗"}{" "}
+                    {testResult.status != null && <span style={{ color: "var(--text)" }}>HTTP {testResult.status}</span>}
+                    {testResult.latency_ms != null && <span style={{ color: "var(--text-muted)" }}> · {testResult.latency_ms}ms</span>}
+                  </span>
+                )}
+              </div>
+              {testResult && (
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                  <div>→ {testResult.url}</div>
+                  {testResult.response_keys && (
+                    <div>← keys: {testResult.response_keys.join(", ") || "(empty body)"}</div>
+                  )}
+                  {testResult.error && (
+                    <div style={{ color: "var(--fail)" }}>error: {testResult.error}</div>
+                  )}
+                </div>
+              )}
             </div>
 
             <button
