@@ -8,7 +8,7 @@ import anthropic
 
 class BaseAgent(ABC):
     name: str = "base"
-    model: str = "claude-sonnet-4-6"
+    model: str = "claude-haiku-4-5-20251001"
 
     def __init__(self, sandbox: bool = False):
         self.client = anthropic.Anthropic()

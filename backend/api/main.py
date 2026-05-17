@@ -160,7 +160,6 @@ async def probe_websocket(websocket: WebSocket):
         judge = JudgeEvaluator(db=db)
         evaluated = []
 
-        # Notify frontend of all pending attacks upfront
         for i, scenario in enumerate(scenarios):
             await websocket.send_json({
                 "event": "attacking",
@@ -168,10 +167,9 @@ async def probe_websocket(websocket: WebSocket):
                 "total": len(scenarios),
                 "scenario": scenario,
             })
-
-        async def run_and_judge(i, scenario):
             run_result = await asyncio.to_thread(runner.run_scenario, scenario)
             judged = await asyncio.to_thread(judge.evaluate, scenario, run_result)
+            evaluated.append(judged)
             await websocket.send_json({
                 "event": "result",
                 "index": i,
@@ -184,14 +182,6 @@ async def probe_websocket(websocket: WebSocket):
                     },
                 },
             })
-            return judged
-
-        # Run all attacks in parallel — total time = slowest single attack
-        results = await asyncio.gather(
-            *[run_and_judge(i, s) for i, s in enumerate(scenarios)],
-            return_exceptions=True,
-        )
-        evaluated = [r for r in results if isinstance(r, dict)]
 
         # Stage 4b: score
         await websocket.send_json({"event": "stage", "stage": "scoring"})
