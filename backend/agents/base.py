@@ -1,34 +1,9 @@
 import time
 from abc import ABC, abstractmethod
-from typing import Any
 
 import anthropic
-from langfuse import Langfuse
-from lmnr import Laminar
-
-_langfuse = None
-_laminar_initialized = False
-
-
-def get_langfuse() -> Langfuse | None:
-    global _langfuse
-    if _langfuse is None:
-        try:
-            _langfuse = Langfuse()
-        except Exception:
-            pass
-    return _langfuse
-
-
-def ensure_laminar() -> bool:
-    global _laminar_initialized
-    if not _laminar_initialized:
-        try:
-            Laminar.initialize()
-            _laminar_initialized = True
-        except Exception:
-            pass
-    return _laminar_initialized
+# from langfuse import Langfuse
+# from lmnr import Laminar
 
 
 class BaseAgent(ABC):

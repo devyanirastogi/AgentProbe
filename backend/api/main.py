@@ -142,7 +142,8 @@ async def probe_websocket(websocket: WebSocket):
         # Stage 2: generate attacks
         await websocket.send_json({"event": "stage", "stage": "generating_attacks"})
         generator = AttackGenerator(db=db)
-        scenarios = generator.generate(
+        scenarios = await asyncio.to_thread(
+            generator.generate,
             traces_data,
             attacks_per_type=config.get("attacks_per_type", 3),
             workflow_description=config.get("workflow_name") or None,
@@ -152,13 +153,14 @@ async def probe_websocket(websocket: WebSocket):
             scenarios = scenarios[:max_scenarios]
         await websocket.send_json({"event": "attacks_generated", "count": len(scenarios)})
 
-        # Stage 3 + 4: run attacks and judge results
+        # Stage 3 + 4: run attacks in parallel and stream results as they complete
         pipeline_url = config.get("pipeline_url") or "http://localhost:8000"
         auth_header  = config.get("auth_header") or None
         runner = AttackRunner(pipeline_base_url=pipeline_url, auth_header=auth_header, db=db)
         judge = JudgeEvaluator(db=db)
         evaluated = []
 
+        # Notify frontend of all pending attacks upfront
         for i, scenario in enumerate(scenarios):
             await websocket.send_json({
                 "event": "attacking",
@@ -166,11 +168,10 @@ async def probe_websocket(websocket: WebSocket):
                 "total": len(scenarios),
                 "scenario": scenario,
             })
-            run_result = runner.run_scenario(scenario)
-            judged = judge.evaluate(scenario, run_result)
-            evaluated.append(judged)
-            # Echo scenario summary alongside the judged result so the live feed
-            # can show attack type, target node, and description per row.
+
+        async def run_and_judge(i, scenario):
+            run_result = await asyncio.to_thread(runner.run_scenario, scenario)
+            judged = await asyncio.to_thread(judge.evaluate, scenario, run_result)
             await websocket.send_json({
                 "event": "result",
                 "index": i,
@@ -183,6 +184,14 @@ async def probe_websocket(websocket: WebSocket):
                     },
                 },
             })
+            return judged
+
+        # Run all attacks in parallel — total time = slowest single attack
+        results = await asyncio.gather(
+            *[run_and_judge(i, s) for i, s in enumerate(scenarios)],
+            return_exceptions=True,
+        )
+        evaluated = [r for r in results if isinstance(r, dict)]
 
         # Stage 4b: score
         await websocket.send_json({"event": "stage", "stage": "scoring"})

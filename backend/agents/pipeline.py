@@ -1,24 +1,11 @@
 import uuid
-from langfuse import Langfuse
-from lmnr import Laminar
+# from langfuse import Langfuse
+# from lmnr import Laminar
 
 from .document_extraction import DocumentExtractionAgent
 from .kyc_verification import KYCVerificationAgent
 from .risk_assessment import RiskAssessmentAgent
 from .compliance_decision import ComplianceDecisionAgent
-
-_laminar_initialized = False
-
-
-def _ensure_laminar() -> bool:
-    global _laminar_initialized
-    if not _laminar_initialized:
-        try:
-            Laminar.initialize()
-            _laminar_initialized = True
-        except Exception:
-            pass
-    return _laminar_initialized
 
 
 class BankingPipeline:
@@ -30,97 +17,58 @@ class BankingPipeline:
         self.kyc_agent = KYCVerificationAgent(sandbox=sandbox)
         self.risk_agent = RiskAssessmentAgent(sandbox=sandbox)
         self.compliance_agent = ComplianceDecisionAgent(sandbox=sandbox)
-        self._lf = None
-        try:
-            self._lf = Langfuse()
-        except Exception:
-            pass
 
     def run(self, application: dict, workflow_id: str | None = None) -> dict:
         workflow_id = workflow_id or str(uuid.uuid4())
 
-        # AgentProbe injection fields
-        framing             = application.get("framing")             # "formal" | "casual" | None
-        override_extraction = application.get("override_extraction") # dict | None — CASCADE attack
+        framing             = application.get("framing")
+        override_extraction = application.get("override_extraction")
 
-        trace_id = None
-        # if self._lf:
-        #     trace = self._lf.trace(
-        #         name="bank-account-opening",
-        #         id=workflow_id,
-        #         input=application,
-        #     )
-        #     trace_id = trace.id
-
-        laminar_ctx = (
-            Laminar.start_as_current_span(name="bank-account-opening", input=application)
-            if _ensure_laminar()
-            else None
-        )
-        if laminar_ctx is not None:
-            laminar_ctx.__enter__()
-
-        try:
-            # Stage 1: document extraction (skipped for CASCADE — use injected data)
-            if override_extraction is not None:
-                doc_result = {
-                    "extracted_data": override_extraction,
-                    "tokens": 0,
-                    "_meta": {"agent": "document_extraction", "latency_ms": 0, "overridden": True},
-                }
-            else:
-                doc_result = self.doc_agent.run(
-                    {"documents": application.get("documents", {}), "_framing": framing},
-                    trace_id,
-                )
-
-            # Stage 2: KYC
-            kyc_result = self.kyc_agent.run(
-                {"extracted_data": doc_result["extracted_data"], "_framing": framing},
-                trace_id,
-            )
-
-            # Stage 3: risk assessment
-            risk_result = self.risk_agent.run(
-                {
-                    "extracted_data": doc_result["extracted_data"],
-                    "kyc_result": kyc_result["kyc_result"],
-                    "_framing": framing,
-                },
-                trace_id,
-            )
-
-            # Stage 4: compliance decision
-            compliance_result = self.compliance_agent.run(
-                {
-                    "extracted_data": doc_result["extracted_data"],
-                    "kyc_result": kyc_result["kyc_result"],
-                    "risk_result": risk_result["risk_result"],
-                    "_framing": framing,
-                },
-                trace_id,
-            )
-
-            pipeline_output = {
-                "workflow_id": workflow_id,
-                "trace_id": trace_id,
-                "framing": framing,
-                "stages": {
-                    "document_extraction": doc_result,
-                    "kyc_verification": kyc_result,
-                    "risk_assessment": risk_result,
-                    "compliance_decision": compliance_result,
-                },
-                "final_decision": compliance_result.get("compliance_result", {}).get("decision"),
+        # Stage 1: document extraction (skipped for CASCADE — use injected data)
+        if override_extraction is not None:
+            doc_result = {
+                "extracted_data": override_extraction,
+                "tokens": 0,
+                "_meta": {"agent": "document_extraction", "latency_ms": 0, "overridden": True},
             }
+        else:
+            doc_result = self.doc_agent.run(
+                {"documents": application.get("documents", {}), "_framing": framing},
+            )
 
-            # if self._lf and trace_id:
-            #     self._lf.trace(id=trace_id, output=pipeline_output)
-            if laminar_ctx is not None:
-                Laminar.set_span_output(pipeline_output)
+        # Stage 2: KYC
+        kyc_result = self.kyc_agent.run(
+            {"extracted_data": doc_result["extracted_data"], "_framing": framing},
+        )
 
-            return pipeline_output
+        # Stage 3: risk assessment
+        risk_result = self.risk_agent.run(
+            {
+                "extracted_data": doc_result["extracted_data"],
+                "kyc_result": kyc_result["kyc_result"],
+                "_framing": framing,
+            },
+        )
 
-        finally:
-            if laminar_ctx is not None:
-                laminar_ctx.__exit__(None, None, None)
+        # Stage 4: compliance decision
+        compliance_result = self.compliance_agent.run(
+            {
+                "extracted_data": doc_result["extracted_data"],
+                "kyc_result": kyc_result["kyc_result"],
+                "risk_result": risk_result["risk_result"],
+                "_framing": framing,
+            },
+        )
+
+        return {
+            "workflow_id": workflow_id,
+            "trace_id": workflow_id,
+            "framing": framing,
+            "stages": {
+                "document_extraction": doc_result,
+                "kyc_verification": kyc_result,
+                "risk_assessment": risk_result,
+                "compliance_decision": compliance_result,
+            },
+            "final_decision": compliance_result.get("compliance_result", {}).get("decision"),
+        }

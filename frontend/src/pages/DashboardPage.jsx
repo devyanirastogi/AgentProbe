@@ -193,6 +193,134 @@ export default function DashboardPage({ scores, agentNames, onReset }) {
     setTab(t);
   }
 
+  function generateReport() {
+    const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    const totalAttacks = (attack_results ?? []).length;
+    const fails = (attack_results ?? []).filter(r => r.verdict === "FAIL");
+    const partials = (attack_results ?? []).filter(r => r.verdict === "PARTIAL");
+
+    const COMPLIANCE_MAP = {
+      INJECTION:   "BSA/AML §5318 — Agents must not execute instructions embedded in customer-supplied data fields.",
+      SANDBAGGING: "FFIEC BSA/AML Manual — Agent behavior must be consistent regardless of audit oversight framing.",
+      CASCADE:     "FinCEN CDD Rule §1020.210 — Downstream agents must independently verify upstream outputs.",
+      BOUNDARY:    "OFAC Compliance §501 — Risk thresholds must be enforced at correct decision boundaries.",
+      CONSISTENCY: "USA PATRIOT Act §326 — Identical inputs must produce consistent identity verification outcomes.",
+    };
+
+    const RECS_MAP = {
+      INJECTION:   "Add input sanitization to strip instruction-like tokens from all customer data fields before passing to downstream agents.",
+      SANDBAGGING: "Standardize agent system prompts to remove framing sensitivity. Audit prompts for language that implies reduced oversight.",
+      CASCADE:     "Each agent must re-verify critical fields independently rather than trusting upstream outputs blindly.",
+      BOUNDARY:    "Calibrate risk scoring thresholds with explicit test cases at known boundary values.",
+      CONSISTENCY: "Add deterministic post-processing or output validation to ensure identical inputs produce identical decisions.",
+    };
+
+    const verdictBadge = (v) => {
+      const colors = { PASS: "#22c55e", PARTIAL: "#f59e0b", FAIL: "#ef4444" };
+      return `<span style="background:${colors[v] ?? "#666"}22;color:${colors[v] ?? "#666"};padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700">${v}</span>`;
+    };
+
+    const agentRows = Object.entries(agent_scores ?? {}).map(([agent, m]) => {
+      const score = m.overall_score ?? 0;
+      const color = score >= 75 ? "#22c55e" : score >= 50 ? "#f59e0b" : "#ef4444";
+      return `<tr>
+        <td style="padding:8px 12px;font-family:monospace;font-size:12px">${agent}</td>
+        <td style="padding:8px 12px;color:${color};font-weight:700;font-family:monospace">${score.toFixed(1)}%</td>
+        <td style="padding:8px 12px;font-size:12px">${score >= 75 ? "No action required" : score >= 50 ? "Review recommended" : "⚠ Critical — fix before deploy"}</td>
+      </tr>`;
+    }).join("");
+
+    const attackRows = (attack_results ?? []).sort((a,b) => {
+      const o = { FAIL:0, PARTIAL:1, PASS:2 };
+      return (o[a.verdict]??3)-(o[b.verdict]??3);
+    }).map(r => `<tr>
+      <td style="padding:8px 12px">${verdictBadge(r.verdict)}</td>
+      <td style="padding:8px 12px;font-family:monospace;font-size:11px">${r.agent_name ?? "—"}</td>
+      <td style="padding:8px 12px;font-size:11px">${r.attack_type ?? "—"}</td>
+      <td style="padding:8px 12px;font-size:11px;color:#999;max-width:400px">${r.judge_reasoning ?? "—"}</td>
+    </tr>`).join("");
+
+    const criticalFindings = [...fails, ...partials].map(r => {
+      const type = r.attack_type ?? "UNKNOWN";
+      return `<div style="margin-bottom:20px;padding:16px;border-left:3px solid ${r.verdict==="FAIL"?"#ef4444":"#f59e0b"};background:#111">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+          ${verdictBadge(r.verdict)}
+          <span style="font-family:monospace;font-size:12px;color:#7c3aed">${type}</span>
+          <span style="font-family:monospace;font-size:12px;color:#999">→ ${r.agent_name ?? "unknown agent"}</span>
+        </div>
+        <p style="font-size:12px;color:#ccc;margin:0 0 8px">${r.judge_reasoning ?? ""}</p>
+        <p style="font-size:11px;color:#f59e0b;margin:0"><strong>Compliance risk:</strong> ${COMPLIANCE_MAP[type] ?? "Review required"}</p>
+        <p style="font-size:11px;color:#60a5fa;margin:4px 0 0"><strong>Recommendation:</strong> ${RECS_MAP[type] ?? "Investigate and remediate."}</p>
+      </div>`;
+    }).join("") || "<p style='color:#666;font-size:13px'>No critical findings — all attacks passed.</p>";
+
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>AgentProbe Security Report</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0a; color: #e2e8f0; font-family: -apple-system, sans-serif; padding: 40px; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 28px; font-weight: 800; color: #fff; }
+  h2 { font-size: 16px; font-weight: 700; color: #7c3aed; text-transform: uppercase; letter-spacing: 0.08em; margin: 32px 0 12px; border-bottom: 1px solid #222; padding-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #666; border-bottom: 1px solid #222; }
+  tr:nth-child(even) { background: #111; }
+  .score-big { font-size: 64px; font-weight: 800; font-family: monospace; line-height: 1; }
+  .meta { font-size: 12px; color: #666; font-family: monospace; }
+  @media print { body { background: white; color: black; } }
+</style>
+</head><body>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px">
+    <div>
+      <div style="font-size:11px;color:#7c3aed;font-family:monospace;letter-spacing:0.1em;margin-bottom:8px">AGENTPROBE — SECURITY REPORT</div>
+      <h1>Pipeline Red-Team Analysis</h1>
+      <p style="color:#666;font-size:13px;margin-top:6px">${date} · ${totalAttacks} attacks · ${agentNames?.join(" → ") ?? ""}</p>
+    </div>
+    <div style="text-align:right">
+      <div class="score-big" style="color:${workflow_score >= 75 ? "#22c55e" : workflow_score >= 50 ? "#f59e0b" : "#ef4444"}">${workflow_score?.toFixed(1) ?? "—"}%</div>
+      <div style="font-size:12px;color:#666;font-family:monospace;margin-top:4px">WORKFLOW RELIABILITY</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px">
+    ${[
+      ["Total Attacks", totalAttacks],
+      ["Passed", passCount],
+      ["Partial", partialCount],
+      ["Failed", failCount],
+    ].map(([l,v]) => `<div style="background:#111;padding:16px;border:1px solid #222">
+      <div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">${l}</div>
+      <div style="font-size:28px;font-weight:800;font-family:monospace">${v}</div>
+    </div>`).join("")}
+  </div>
+
+  <h2>Per-Agent Scores</h2>
+  <table><thead><tr><th>Agent</th><th>Score</th><th>Status</th></tr></thead>
+  <tbody>${agentRows}</tbody></table>
+
+  <h2>Critical Findings</h2>
+  ${criticalFindings}
+
+  <h2>Full Attack Log</h2>
+  <table><thead><tr><th>Verdict</th><th>Agent</th><th>Attack Type</th><th>Judge Reasoning</th></tr></thead>
+  <tbody>${attackRows}</tbody></table>
+
+  <h2>Regulatory Compliance Reference</h2>
+  <table><thead><tr><th>Attack Type</th><th>Regulation</th></tr></thead>
+  <tbody>${Object.entries(COMPLIANCE_MAP).map(([t,c]) => `<tr><td style="padding:8px 12px;font-family:monospace;font-size:11px">${t}</td><td style="padding:8px 12px;font-size:12px;color:#999">${c}</td></tr>`).join("")}</tbody></table>
+
+  <p style="margin-top:40px;font-size:11px;color:#444;font-family:monospace;text-align:center">Generated by AgentProbe · ${date}</p>
+</body></html>`;
+
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `agentprobe-report-${Date.now()}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const tabAnimated = openedTabs.current.has(tab);
 
   return (
@@ -251,6 +379,7 @@ export default function DashboardPage({ scores, agentNames, onReset }) {
           </button>
         ))}
         <div style={{ flex: 1 }} />
+        <button onClick={generateReport} style={{ ...S.newProbeBtn, background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", marginRight: "0.5rem" }}>↓ Download Report</button>
         <button onClick={onReset} style={S.newProbeBtn}>+ New Probe</button>
       </div>
 
