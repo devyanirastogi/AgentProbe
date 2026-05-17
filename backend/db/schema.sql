@@ -1,7 +1,5 @@
 -- AgentProbe Snowflake Schema
-
-CREATE DATABASE IF NOT EXISTS AGENTPROBE;
-USE DATABASE AGENTPROBE;
+-- Run against TRAINING_DB.TRAININGLAB (credentials from .env)
 
 CREATE TABLE IF NOT EXISTS traces (
     trace_id        VARCHAR(64)  PRIMARY KEY,
