@@ -8,7 +8,30 @@ export default function IngestPage({ onIngested }) {
   const [endpointUrl, setEndpointUrl] = useState("");
   const [authHeader, setAuthHeader]   = useState("");
   const [urlError, setUrlError]       = useState(null);
+  const [testing, setTesting]         = useState(false);
+  const [testResult, setTestResult]   = useState(null);
   const fileRef = useRef();
+
+  async function testEndpoint() {
+    if (!endpointUrl.trim()) { setUrlError("Endpoint URL is required."); return; }
+    if (!endpointUrl.trim().startsWith("http")) { setUrlError("URL must start with http:// or https://"); return; }
+    setUrlError(null);
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("http://localhost:8000/api/probe/test-endpoint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: endpointUrl.trim(), auth_header: authHeader.trim() || null }),
+      });
+      const data = await res.json();
+      setTestResult(data);
+    } catch (e) {
+      setTestResult({ ok: false, error: "Backend unreachable: " + e.message, url: endpointUrl.trim(), status: null, latency_ms: 0 });
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function handleFile(file) {
     if (!file || !file.name.endsWith(".csv")) {
@@ -204,7 +227,7 @@ export default function IngestPage({ onIngested }) {
               ))}
             </div>
 
-            {/* ── Endpoint config ── */}
+            {/* ── Endpoint config (our design + gargi's test feature) ── */}
             <EndpointConfig
               endpointUrl={endpointUrl}
               setEndpointUrl={setEndpointUrl}
@@ -212,6 +235,9 @@ export default function IngestPage({ onIngested }) {
               setAuthHeader={setAuthHeader}
               urlError={urlError}
               setUrlError={setUrlError}
+              testEndpoint={testEndpoint}
+              testing={testing}
+              testResult={testResult}
             />
 
             <button
@@ -345,7 +371,7 @@ function AgentCard({ agent, index, total }) {
 }
 
 /* ── Endpoint Config ──────────────────────────────────────── */
-function EndpointConfig({ endpointUrl, setEndpointUrl, authHeader, setAuthHeader, urlError, setUrlError }) {
+function EndpointConfig({ endpointUrl, setEndpointUrl, authHeader, setAuthHeader, urlError, setUrlError, testEndpoint, testing, testResult }) {
   const [urlFocused, setUrlFocused] = useState(false);
   const [authFocused, setAuthFocused] = useState(false);
 
@@ -436,6 +462,41 @@ function EndpointConfig({ endpointUrl, setEndpointUrl, authHeader, setAuthHeader
             }}
           />
         </div>
+
+        {/* Test endpoint button + result */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          <button
+            onClick={testEndpoint}
+            disabled={testing}
+            style={{
+              fontFamily: "var(--mono)", fontSize: 11,
+              background: "transparent",
+              border: `1px solid ${testing ? "rgba(255,255,255,0.1)" : "rgba(124,58,237,0.4)"}`,
+              color: testing ? "var(--text-dim)" : "var(--accent)",
+              padding: "0.375rem 0.875rem", cursor: testing ? "wait" : "pointer",
+              transition: "border-color 0.15s",
+            }}
+          >
+            {testing ? "testing…" : "Test connection"}
+          </button>
+          {testResult && (
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: testResult.ok ? "var(--pass)" : "var(--fail)", display: "flex", alignItems: "center", gap: "0.375rem" }}>
+              {testResult.ok ? "✓" : "✗"}
+              {testResult.status != null && <span style={{ color: "var(--text)" }}>HTTP {testResult.status}</span>}
+              {testResult.latency_ms != null && <span style={{ color: "var(--text-muted)" }}>{testResult.latency_ms}ms</span>}
+            </span>
+          )}
+        </div>
+        {testResult?.error && (
+          <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--fail)", marginTop: "-0.5rem" }}>
+            {testResult.error}
+          </p>
+        )}
+        {testResult?.response_keys && (
+          <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: "-0.5rem" }}>
+            Response keys: {testResult.response_keys.join(", ") || "(empty)"}
+          </p>
+        )}
       </div>
     </div>
   );
