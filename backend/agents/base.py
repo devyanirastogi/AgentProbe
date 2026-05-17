@@ -1,4 +1,5 @@
 import time
+import random
 from abc import ABC, abstractmethod
 
 import anthropic
@@ -48,10 +49,21 @@ class BaseAgent(ABC):
         ...
 
     def _chat(self, system: str, user: str) -> tuple[str, int]:
-        resp = self.client.messages.create(
-            model=self.model,
-            max_tokens=2048,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        return resp.content[0].text, resp.usage.input_tokens + resp.usage.output_tokens
+        for attempt in range(4):
+            try:
+                resp = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=2048,
+                    system=system,
+                    messages=[{"role": "user", "content": user}],
+                )
+                return resp.content[0].text, resp.usage.input_tokens + resp.usage.output_tokens
+            except anthropic.OverloadedError:
+                if attempt == 3:
+                    raise
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                time.sleep(wait)
+            except anthropic.RateLimitError:
+                if attempt == 3:
+                    raise
+                time.sleep(10 + random.uniform(0, 5))
