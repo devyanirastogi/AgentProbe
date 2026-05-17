@@ -147,6 +147,9 @@ async def probe_websocket(websocket: WebSocket):
             attacks_per_type=config.get("attacks_per_type", 3),
             workflow_description=config.get("workflow_name") or None,
         )
+        max_scenarios = config.get("max_scenarios")
+        if max_scenarios:
+            scenarios = scenarios[:max_scenarios]
         await websocket.send_json({"event": "attacks_generated", "count": len(scenarios)})
 
         # Stage 3 + 4: run attacks and judge results

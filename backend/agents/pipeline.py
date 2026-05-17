@@ -44,13 +44,13 @@ class BankingPipeline:
         override_extraction = application.get("override_extraction") # dict | None — CASCADE attack
 
         trace_id = None
-        if self._lf:
-            trace = self._lf.trace(
-                name="bank-account-opening",
-                id=workflow_id,
-                input=application,
-            )
-            trace_id = trace.id
+        # if self._lf:
+        #     trace = self._lf.trace(
+        #         name="bank-account-opening",
+        #         id=workflow_id,
+        #         input=application,
+        #     )
+        #     trace_id = trace.id
 
         laminar_ctx = (
             Laminar.start_as_current_span(name="bank-account-opening", input=application)
@@ -114,8 +114,8 @@ class BankingPipeline:
                 "final_decision": compliance_result.get("compliance_result", {}).get("decision"),
             }
 
-            if self._lf and trace_id:
-                self._lf.trace(id=trace_id, output=pipeline_output)
+            # if self._lf and trace_id:
+            #     self._lf.trace(id=trace_id, output=pipeline_output)
             if laminar_ctx is not None:
                 Laminar.set_span_output(pipeline_output)
 

@@ -40,43 +40,33 @@ class BaseAgent(ABC):
         self.sandbox = sandbox
 
     def run(self, input_data: dict, trace_id: str | None = None) -> dict:
-        lf = get_langfuse()
-        span = None
-        if lf and trace_id:
-            span = lf.span(
-                name=self.name,
-                trace_id=trace_id,
-                input=input_data,
-            )
+        # lf = get_langfuse()
+        # span = None
+        # if lf and trace_id:
+        #     span = lf.span(name=self.name, trace_id=trace_id, input=input_data)
 
-        laminar_ctx = (
-            Laminar.start_as_current_span(name=self.name, input=input_data)
-            if ensure_laminar()
-            else None
-        )
-        if laminar_ctx is not None:
-            laminar_ctx.__enter__()
+        # laminar_ctx = (
+        #     Laminar.start_as_current_span(name=self.name, input=input_data)
+        #     if ensure_laminar()
+        #     else None
+        # )
+        # if laminar_ctx is not None:
+        #     laminar_ctx.__enter__()
 
-        try:
-            start = time.monotonic()
-            result = self._call(input_data)
-            elapsed_ms = int((time.monotonic() - start) * 1000)
+        start = time.monotonic()
+        result = self._call(input_data)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
 
-            result["_meta"] = {
-                "agent": self.name,
-                "latency_ms": elapsed_ms,
-                "model": self.model,
-            }
+        result["_meta"] = {
+            "agent": self.name,
+            "latency_ms": elapsed_ms,
+            "model": self.model,
+        }
 
-            if span:
-                span.end(output=result)
-            if laminar_ctx is not None:
-                Laminar.set_span_output(result)
+        # if span:
+        #     span.end(output=result)
 
-            return result
-        finally:
-            if laminar_ctx is not None:
-                laminar_ctx.__exit__(None, None, None)
+        return result
 
     @abstractmethod
     def _call(self, input_data: dict) -> dict:

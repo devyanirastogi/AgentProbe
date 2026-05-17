@@ -37,6 +37,7 @@ export default function AttackPage({ csvContent, agentNames, endpointUrl, authHe
     wsRef.current = ws;
     ws.onopen = () => ws.send(JSON.stringify({
       attacks_per_type: attacksPerType,
+      max_scenarios: attacksPerType === 1 ? 1 : undefined,
       csv_content: csvContent,
       pipeline_url: endpointUrl,
       auth_header: authHeader,
@@ -151,10 +152,8 @@ export default function AttackPage({ csvContent, agentNames, endpointUrl, authHe
             ))}
           </div>
 
-          <div style={{ flex: 1 }} />
-
           {/* Launch / Stop */}
-          <div style={{ padding: "1rem" }}>
+          <div style={{ padding: "1rem", borderTop: "1px solid var(--border)" }}>
             {status === "running" ? (
               <button onClick={stop} style={S.stopBtn}>
                 <span className="pulse-dot" style={S.dot} />
@@ -335,7 +334,7 @@ function EndpointCallRow({ call }) {
 const S = {
   page:        { display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg)", overflow: "hidden" },
   layout:      { flex: 1, display: "grid", gridTemplateColumns: "260px 1fr", overflow: "hidden" },
-  sidebar:     { display: "flex", flexDirection: "column", borderRight: "1px solid var(--border)", overflow: "hidden" },
+  sidebar:     { display: "flex", flexDirection: "column", borderRight: "1px solid var(--border)", overflowY: "auto" },
   sideSection: { padding: "1.25rem 1rem" },
   sideLabel:   { fontFamily: "var(--mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-dim)", marginBottom: "0.75rem" },
   agentRow:    { display: "flex", alignItems: "center", gap: "0.625rem", padding: "0.3rem 0" },

@@ -49,8 +49,7 @@ export default function IngestPage({ onIngested }) {
       const res = await fetch("http://localhost:8000/api/ingest/csv", { method: "POST", body: fd });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      const agentNames = [...new Set(data.traces.map((t) => t.agent_name))].filter(Boolean);
-      setPreview({ agentNames, traceCount: data.ingested, csvContent, workflowName: parsed.workflowName, modelName: parsed.modelName });
+      setPreview({ agentNames: parsed.agentNames, traceCount: data.ingested, csvContent, workflowName: parsed.workflowName, modelName: parsed.modelName });
     } catch {
       setPreview({ agentNames: parsed.agentNames, traceCount: parsed.traceCount, csvContent, workflowName: parsed.workflowName, modelName: parsed.modelName });
     } finally {
