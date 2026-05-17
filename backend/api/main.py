@@ -7,7 +7,9 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
-from agents.pipeline import BankingPipeline
+from workflows.agents.pipeline import BankingPipeline
+from workflows.healthcare_agents.pipeline import HealthcarePipeline
+from workflows._telemetry import init_langfuse
 from agentprobe import TraceIngester, AttackGenerator, AttackRunner, JudgeEvaluator, ReliabilityScorer
 from db import get_db
 from .routes import traces, attacks, scores
@@ -15,8 +17,12 @@ from .routes import traces, attacks, scores
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize LangFuse before instantiating any pipeline so observations
+    # have a live client to send to.
+    init_langfuse()
     app.state.db = get_db()
     app.state.pipeline = BankingPipeline(sandbox=True)
+    app.state.healthcare_pipeline = HealthcarePipeline(sandbox=True)
     yield
 
 
@@ -101,6 +107,20 @@ async def run_pipeline(application: dict):
     - override_extraction: dict      — cascade attack (bypass Agent 1)
     """
     pipeline: BankingPipeline = app.state.pipeline
+    result = pipeline.run(application)
+    return result
+
+
+@app.post("/api/healthcare/run")
+async def run_healthcare(application: dict):
+    """Run the 4-agent healthcare pre-authorization pipeline.
+
+    Same contract as /api/pipeline/run — accepts the AgentProbe-injected fields
+    (framing, override_extraction) and returns {workflow_id, stages, final_decision}.
+    Point the AgentProbe runner at this URL to red-team the healthcare workflow
+    interchangeably with banking.
+    """
+    pipeline: HealthcarePipeline = app.state.healthcare_pipeline
     result = pipeline.run(application)
     return result
 

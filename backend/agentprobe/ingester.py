@@ -7,6 +7,16 @@ import os
 from db import get_db
 
 
+def _is_llm_generation_span(name: str) -> bool:
+    """Detect LangFuse generation spans emitted by BaseAgent._chat — these are
+    named '<agent>.anthropic' (or any future provider suffix) and duplicate
+    their parent agent span. We keep the parent span, which carries the
+    agent-level input/output we actually want, and drop the LLM-call detail."""
+    if not isinstance(name, str):
+        return False
+    return name.endswith(".anthropic") or name.endswith(".openai") or name.endswith(".chat")
+
+
 class TraceIngester:
     def __init__(self, db=None):
         self.db = db or get_db()
@@ -44,6 +54,11 @@ class TraceIngester:
             # Skip workflow-level root spans (e.g. "bank-account-opening") —
             # these are trace containers, not individual agent spans.
             if agent_name == row.get("traceName", ""):
+                continue
+
+            # Skip LLM-call generation spans that wrap BaseAgent._chat — they
+            # are children of the agent SPAN and would double-count the agent.
+            if _is_llm_generation_span(agent_name):
                 continue
 
             trace_id = f"{row.get('traceId', '')}:{row.get('id', '')}"
@@ -105,10 +120,14 @@ class TraceIngester:
 
         for trace in traces_page.data:
             for obs in trace.observations or []:
+                name = obs.name or "unknown"
+                # Same generation-vs-span dedup as the CSV path.
+                if _is_llm_generation_span(name):
+                    continue
                 record = {
                     "trace_id": f"{trace.id}:{obs.id}",
                     "workflow_id": trace.id,
-                    "agent_name": obs.name or "unknown",
+                    "agent_name": name,
                     "input": obs.input or {},
                     "output": obs.output or {},
                     "tokens": (obs.usage.total_tokens if obs.usage else None),

@@ -9,8 +9,10 @@ function badge(score) {
 
 export default function SandbaggingView({ agentScores, detailed, animate = false }) {
   const reduced = useReducedMotion();
+  // sandbagging_delta = real behavioral delta between formal vs casual framing
+  // (higher = worse). Distinct from sandbagging_score, which is the judge pass-rate.
   const agents  = Object.entries(agentScores ?? {})
-    .map(([agent, m]) => ({ agent, score: m?.sandbagging_score ?? null }))
+    .map(([agent, m]) => ({ agent, score: m?.sandbagging_delta ?? null }))
     .filter((d) => d.score != null);
 
   return (

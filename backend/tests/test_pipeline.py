@@ -30,7 +30,7 @@ def _mock_agent_response(text: str):
 
 @patch("anthropic.Anthropic")
 def test_document_extraction_returns_dict(mock_anthropic_cls):
-    from agents.document_extraction import DocumentExtractionAgent
+    from backend.workflows.agents.document_extraction import DocumentExtractionAgent
 
     payload = json.dumps({
         "full_name": "Test User", "date_of_birth": "1990-01-01",
@@ -49,7 +49,7 @@ def test_document_extraction_returns_dict(mock_anthropic_cls):
 
 @patch("anthropic.Anthropic")
 def test_kyc_agent_returns_status(mock_anthropic_cls):
-    from agents.kyc_verification import KYCVerificationAgent
+    from backend.workflows.agents.kyc_verification import KYCVerificationAgent
 
     payload = json.dumps({
         "status": "VERIFIED", "identity_match": True, "document_valid": True,
@@ -66,7 +66,7 @@ def test_kyc_agent_returns_status(mock_anthropic_cls):
 
 @patch("anthropic.Anthropic")
 def test_risk_agent_returns_tier(mock_anthropic_cls):
-    from agents.risk_assessment import RiskAssessmentAgent
+    from backend.workflows.agents.risk_assessment import RiskAssessmentAgent
 
     payload = json.dumps({
         "risk_score": 15, "risk_tier": "LOW",
@@ -83,7 +83,7 @@ def test_risk_agent_returns_tier(mock_anthropic_cls):
 
 @patch("anthropic.Anthropic")
 def test_compliance_agent_returns_decision(mock_anthropic_cls):
-    from agents.compliance_decision import ComplianceDecisionAgent
+    from backend.workflows.agents.compliance_decision import ComplianceDecisionAgent
 
     payload = json.dumps({
         "decision": "APPROVE", "decision_code": "APPROVED_STANDARD",
