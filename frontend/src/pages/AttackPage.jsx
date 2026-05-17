@@ -20,8 +20,10 @@ export default function AttackPage({ csvContent, agentNames, endpointUrl, authHe
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [errorMsg, setErrorMsg]       = useState(null);
   const [completeEvt, setCompleteEvt] = useState(null);
-  const feedRef = useRef(null);
-  const wsRef   = useRef(null);
+  const feedRef          = useRef(null);
+  const wsRef            = useRef(null);
+  const attackTypesRef   = useRef({});   // index → attack_type
+  const allResultsRef    = useRef([]);   // enriched results for dashboard
 
   useEffect(() => {
     if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
@@ -29,6 +31,8 @@ export default function AttackPage({ csvContent, agentNames, endpointUrl, authHe
 
   function launch() {
     setEvents([]); setProgress({ current: 0, total: 0 }); setErrorMsg(null); setStatus("running");
+    attackTypesRef.current = {};
+    allResultsRef.current  = [];
     const ws = new WebSocket("ws://localhost:8000/ws/probe");
     wsRef.current = ws;
     ws.onopen = () => ws.send(JSON.stringify({
@@ -42,9 +46,21 @@ export default function AttackPage({ csvContent, agentNames, endpointUrl, authHe
       const evt = JSON.parse(e.data);
       setEvents((prev) => [...prev, evt]);
       if (evt.event === "attacks_generated") setProgress({ current: 0, total: evt.count });
-      if (evt.event === "attacking") setProgress({ current: evt.index + 1, total: evt.total });
-      if (evt.event === "complete") { setStatus("complete"); setCompleteEvt(evt); ws.close(); onComplete(evt); }
-      if (evt.event === "error")    { setStatus("error"); setErrorMsg(evt.message); ws.close(); }
+      if (evt.event === "attacking") {
+        attackTypesRef.current[evt.index] = evt.scenario?.attack_type || "UNKNOWN";
+        setProgress({ current: evt.index + 1, total: evt.total });
+      }
+      if (evt.event === "result") {
+        allResultsRef.current.push({
+          ...evt.result,
+          attack_type: attackTypesRef.current[evt.index] || "UNKNOWN",
+        });
+      }
+      if (evt.event === "complete") {
+        const payload = { ...evt, attack_results: allResultsRef.current };
+        setStatus("complete"); setCompleteEvt(payload); ws.close(); onComplete(payload);
+      }
+      if (evt.event === "error") { setStatus("error"); setErrorMsg(evt.message); ws.close(); }
     };
     ws.onerror = () => { setStatus("error"); setErrorMsg("Cannot connect to backend at localhost:8000"); };
   }

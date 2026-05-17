@@ -39,6 +39,13 @@ body {
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
+/* Hide scrollbar on graph strip but keep scrollability */
+.graph-scroll-hidden::-webkit-scrollbar { display: none; }
+.graph-scroll-hidden { scrollbar-width: none; }
+
+/* Input focus ring */
+input:focus { outline: none; border-color: var(--accent) !important; }
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; }

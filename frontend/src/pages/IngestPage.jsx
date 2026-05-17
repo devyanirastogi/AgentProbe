@@ -18,8 +18,6 @@ export default function IngestPage({ onIngested }) {
     setError(null);
     setLoading(true);
     const csvContent = await file.text();
-
-    // Always parse client-side first so we have workflow metadata
     const parsed = parseCSV(csvContent);
 
     try {
@@ -41,43 +39,53 @@ export default function IngestPage({ onIngested }) {
     const lines = csv.split("\n");
     if (lines.length < 2) return { agentNames: [], traceCount: 0, workflowName: null, modelName: null };
 
-    const header = lines[0].split(",").map((h) => h.replace(/"/g, "").trim());
+    const header       = lines[0].split(",").map((h) => h.replace(/"/g, "").trim());
     const nameIdx      = header.indexOf("name");
     const typeIdx      = header.indexOf("type");
     const traceNameIdx = header.indexOf("traceName");
     const outputIdx    = header.indexOf("output");
+    const startTimeIdx = header.indexOf("startTime");
 
-    const agents = new Set();
+    const agentFirstSeen = {};
     let workflowName = null;
     let modelName    = null;
     let spanCount    = 0;
 
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
-      const cols     = splitCsvLine(lines[i]);
-      const type     = cols[typeIdx]?.replace(/"/g, "").trim().toUpperCase();
-      const name     = cols[nameIdx]?.replace(/"/g, "").trim();
-      const tName    = traceNameIdx >= 0 ? cols[traceNameIdx]?.replace(/"/g, "").trim() : "";
+      const cols      = splitCsvLine(lines[i]);
+      const type      = cols[typeIdx]?.replace(/"/g, "").trim().toUpperCase();
+      const name      = cols[nameIdx]?.replace(/"/g, "").trim();
+      const tName     = traceNameIdx >= 0 ? cols[traceNameIdx]?.replace(/"/g, "").trim() : "";
+      const startTime = startTimeIdx >= 0 ? cols[startTimeIdx]?.replace(/"/g, "").trim() : null;
 
       if (!workflowName && tName) workflowName = tName;
-
       if (!name || name === tName) continue;
       if (type !== "SPAN" && type !== "GENERATION") continue;
 
-      agents.add(name);
+      if (startTime && (!agentFirstSeen[name] || startTime < agentFirstSeen[name])) {
+        agentFirstSeen[name] = startTime;
+      } else if (!agentFirstSeen[name]) {
+        agentFirstSeen[name] = "";
+      }
       spanCount++;
 
-      // Try to extract model name from output JSON _meta field
       if (!modelName && outputIdx >= 0) {
         try {
-          const out = JSON.parse(cols[outputIdx]?.replace(/^"|"$/g, "") ?? "{}");
-          const m = out?._meta?.model;
-          if (m) modelName = m;
+          const raw = cols[outputIdx] ?? "";
+          const unquoted = raw.startsWith('"') ? raw.slice(1, -1).replace(/""/g, '"') : raw;
+          const out = JSON.parse(unquoted);
+          if (out?._meta?.model) modelName = out._meta.model;
         } catch { /* ignore */ }
       }
     }
 
-    return { agentNames: [...agents], traceCount: spanCount, workflowName, modelName };
+    const agentNames = Object.keys(agentFirstSeen).sort((a, b) => {
+      const ta = agentFirstSeen[a] || "", tb = agentFirstSeen[b] || "";
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
+
+    return { agentNames, traceCount: spanCount, workflowName, modelName };
   }
 
   function splitCsvLine(line) {
@@ -97,9 +105,7 @@ export default function IngestPage({ onIngested }) {
     if (file) handleFile(file);
   }
 
-  const detectedAgents = preview?.agentNames ?? [];
-  // Preserve order from CSV; no hardcoded known-order preference
-  const orderedAgents  = detectedAgents;
+  const orderedAgents = preview?.agentNames ?? [];
 
   return (
     <div className="fade-in" style={S.page}>
@@ -108,15 +114,16 @@ export default function IngestPage({ onIngested }) {
       <div style={S.body}>
         {!preview ? (
           /* ── Upload state ─────────────────────────────────────── */
-          <div style={S.center}>
+          <div style={S.col}>
             <p style={S.eyebrow}>Step 1 of 3</p>
             <h1 style={S.h1}>Import your agent traces</h1>
             <p style={S.sub}>
-              Export a CSV from LangFuse → Traces → Export CSV.<br />
-              AgentProbe detects your pipeline structure automatically and generates
-              attacks from your real production data.
+              Export a CSV from LangFuse → Traces → Export CSV.
+              AgentProbe reads your real production traces and generates
+              targeted adversarial attacks from them.
             </p>
 
+            {/* Drop zone */}
             <div
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
@@ -124,114 +131,88 @@ export default function IngestPage({ onIngested }) {
               onClick={() => fileRef.current.click()}
               style={{
                 ...S.dropzone,
-                borderColor: dragOver ? "var(--accent)" : "rgba(255,255,255,0.1)",
-                background:  dragOver ? "var(--accent-dim)" : "transparent",
+                borderColor:   dragOver ? "#7c3aed" : "rgba(124,58,237,0.25)",
+                background:    dragOver ? "rgba(124,58,237,0.08)" : "rgba(124,58,237,0.03)",
+                boxShadow:     dragOver ? "0 0 40px rgba(124,58,237,0.15), inset 0 0 40px rgba(124,58,237,0.03)" : "none",
               }}
             >
               <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }}
                 onChange={(e) => handleFile(e.target.files[0])} />
 
               {loading ? (
-                <div style={{ textAlign: "center" }}>
+                <div style={{ textAlign: "center", padding: "3rem 0" }}>
                   <Spinner />
-                  <p style={{ color: "var(--text-muted)", marginTop: "1rem", fontFamily: "var(--mono)", fontSize: 13 }}>
-                    Parsing traces...
-                  </p>
+                  <p style={{ color: "var(--text-muted)", marginTop: "1.25rem", fontFamily: "var(--mono)", fontSize: 12 }}>Parsing traces...</p>
                 </div>
               ) : (
-                <div style={{ textAlign: "center" }}>
+                <div style={{ textAlign: "center", padding: "3.5rem 2rem" }}>
                   <UploadIcon active={dragOver} />
                   <p style={S.dropTitle}>{dragOver ? "Release to upload" : "Drop your LangFuse CSV here"}</p>
-                  <p style={S.dropSub}>or click to browse files</p>
+                  <p style={S.dropSub}>or click to browse &nbsp;·&nbsp; LangFuse → Traces → Export CSV</p>
                 </div>
               )}
             </div>
 
-            {error && <p style={S.error}>{error}</p>}
+            {error && <p style={S.errMsg}>{error}</p>}
 
-            <div style={S.pillRow}>
-              {["Trace-driven attacks", "5 attack vectors", "Live agent execution", "Any pipeline"].map((t) => (
-                <span key={t} style={S.pill}>{t}</span>
+            <div style={S.featureRow}>
+              {[
+                ["◈", "Trace-driven", "Attacks built from your real data"],
+                ["⬡", "Any pipeline", "Works on any multi-agent workflow"],
+                ["◎", "Live execution", "Real HTTP calls, not simulations"],
+                ["◆", "Scored", "Per-agent reliability metrics"],
+              ].map(([icon, title, desc]) => (
+                <div key={title} style={S.featureCard}>
+                  <span style={{ color: "var(--accent)", fontSize: 16, marginBottom: "0.5rem", display: "block" }}>{icon}</span>
+                  <div style={{ fontWeight: 600, fontSize: 12, color: "var(--text)", marginBottom: "0.25rem" }}>{title}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>{desc}</div>
+                </div>
               ))}
             </div>
           </div>
+
         ) : (
-          /* ── Pipeline detected state ──────────────────────────── */
-          <div style={S.center} className="fade-in">
-            <div style={S.successBadge}>
-              <span style={{ color: "var(--pass)" }}>✓</span>&nbsp; Pipeline detected
+          /* ── Pipeline detected ─────────────────────────────────── */
+          <div style={S.col} className="fade-in">
+
+            <div style={S.detectBadge}>
+              <span style={{ color: "var(--pass)", marginRight: 6 }}>✓</span>Pipeline detected
             </div>
 
             <h1 style={{ ...S.h1, marginBottom: "0.5rem" }}>
               {orderedAgents.length}-agent pipeline found
             </h1>
-            <p style={{ ...S.sub, marginBottom: "2.5rem" }}>
-              AgentProbe will generate adversarial attacks targeting each agent below.
+            <p style={{ ...S.sub, marginBottom: "1.75rem" }}>
+              AgentProbe will generate adversarial attacks targeting each agent.
             </p>
 
-            {/* Node graph */}
-            <div style={S.graph}>
-              {orderedAgents.map((agent, i) => (
-                <React.Fragment key={agent}>
-                  <AgentCard agent={agent} index={i} model={preview.modelName} />
-                  {i < orderedAgents.length - 1 && <Arrow />}
-                </React.Fragment>
+            {/* ── Pipeline node graph ── */}
+            <PipelineGraph agents={orderedAgents} />
+
+            {/* Stats */}
+            <div style={S.statsRow}>
+              {[
+                { v: orderedAgents.length, l: "agents" },
+                preview.traceCount != null && { v: preview.traceCount, l: "trace spans" },
+                preview.workflowName && { v: preview.workflowName, l: "workflow", mono: true },
+                preview.modelName    && { v: preview.modelName,    l: "model",    mono: true },
+              ].filter(Boolean).map(({ v, l, mono }) => (
+                <div key={l} style={S.statPill}>
+                  <span style={{ color: "var(--text)", fontFamily: mono ? "var(--mono)" : "inherit", fontWeight: 600, fontSize: 13 }}>{v}</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{l}</span>
+                </div>
               ))}
             </div>
 
-            {/* Stats row — fully dynamic */}
-            <div style={S.statsRow}>
-              <StatPill value={orderedAgents.length} label="agents" />
-              {preview.traceCount != null && <StatPill value={preview.traceCount} label="trace spans" />}
-              {preview.workflowName && <StatPill value={preview.workflowName} label="workflow" mono />}
-              {preview.modelName   && <StatPill value={preview.modelName}   label="model"    mono />}
-            </div>
-
-            {/* Endpoint configuration */}
-            <div style={{ width: "100%", borderTop: "1px solid var(--border)", paddingTop: "1.5rem", marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.875rem", textAlign: "left" }}>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Target Pipeline Endpoint
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <label style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
-                    Endpoint URL <span style={{ color: "var(--fail)" }}>*</span>
-                  </label>
-                  <button
-                    onClick={() => { setEndpointUrl("http://localhost:8000/api/pipeline/run"); setUrlError(null); }}
-                    style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", fontFamily: "var(--mono)", fontSize: 10, padding: "0.15rem 0.5rem", cursor: "pointer" }}
-                  >
-                    use local
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={endpointUrl}
-                  onChange={(e) => { setEndpointUrl(e.target.value); setUrlError(null); }}
-                  placeholder="https://your-api.com/pipeline/run"
-                  style={S.input}
-                />
-                <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
-                  Must accept POST {"{"}"documents": {"{"}"..."{"}"}{"}"} and return {"{"}"stages": {"{"}"..."{"}"}{"}"}.
-                </p>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
-                <label style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
-                  Authorization Header <span style={{ color: "var(--text-dim)" }}>(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={authHeader}
-                  onChange={(e) => setAuthHeader(e.target.value)}
-                  placeholder="Bearer sk-..."
-                  style={S.input}
-                />
-              </div>
-
-              {urlError && <p style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--fail)" }}>{urlError}</p>}
-            </div>
+            {/* ── Endpoint config ── */}
+            <EndpointConfig
+              endpointUrl={endpointUrl}
+              setEndpointUrl={setEndpointUrl}
+              authHeader={authHeader}
+              setAuthHeader={setAuthHeader}
+              urlError={urlError}
+              setUrlError={setUrlError}
+            />
 
             <button
               onClick={() => {
@@ -240,12 +221,14 @@ export default function IngestPage({ onIngested }) {
                 onIngested(preview.csvContent, orderedAgents, endpointUrl.trim(), authHeader.trim(), preview.workflowName);
               }}
               style={S.cta}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#6d28d9"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
             >
               Start Red-Teaming →
             </button>
 
-            <button onClick={() => setPreview(null)} style={S.ghost}>
-              Upload a different file
+            <button onClick={() => { setPreview(null); setUrlError(null); }} style={S.ghost}>
+              ← Upload a different file
             </button>
           </div>
         )}
@@ -254,104 +237,290 @@ export default function IngestPage({ onIngested }) {
   );
 }
 
-/* ── Sub-components ──────────────────────────────────────────── */
-
-function AgentCard({ agent, index, model }) {
+/* ── Pipeline Graph ───────────────────────────────────────── */
+function PipelineGraph({ agents }) {
   return (
-    <div style={S.agentCard}>
-      <div style={S.agentIndex}>{String(index + 1).padStart(2, "0")}</div>
-      <div style={S.agentName}>{agent}</div>
-      {model && <div style={S.agentModel}>{model}</div>}
+    <div style={{
+      width: "100%",
+      marginBottom: "1.75rem",
+      background: "linear-gradient(135deg, rgba(124,58,237,0.07) 0%, rgba(10,10,10,0) 70%)",
+      border: "1px solid rgba(124,58,237,0.22)",
+      padding: "2.5rem 2rem",
+      position: "relative",
+      overflow: "visible",
+    }}>
+      {/* Top glow */}
+      <div style={{
+        position: "absolute", top: -60, left: "50%", transform: "translateX(-50%)",
+        width: 400, height: 120,
+        background: "radial-gradient(ellipse, rgba(124,58,237,0.2) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }} />
+
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 0,
+        overflowX: "auto",
+        scrollbarWidth: "none",
+      }}>
+        {agents.map((agent, i) => (
+          <React.Fragment key={agent}>
+            <AgentCard agent={agent} index={i} total={agents.length} />
+            {i < agents.length - 1 && (
+              <div style={{ display: "flex", alignItems: "center", flexShrink: 0, padding: "0 6px" }}>
+                <svg width="36" height="16" viewBox="0 0 36 16" fill="none">
+                  <line x1="0" y1="8" x2="26" y2="8" stroke="rgba(124,58,237,0.4)" strokeWidth="1.5" strokeDasharray="4 3" />
+                  <path d="M21 3l6 5-6 5" stroke="rgba(124,58,237,0.7)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                </svg>
+              </div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
     </div>
   );
 }
 
-function Arrow() {
+const AGENT_COLORS = {
+  document_extraction:  "#7c3aed",
+  kyc_verification:     "#3b82f6",
+  risk_assessment:      "#f59e0b",
+  compliance_decision:  "#22c55e",
+};
+
+function AgentCard({ agent, index, total }) {
+  // Wide enough for the longest agent name at 13px mono (~8px/char)
+  // "document_extraction" = 19 chars × 8 = 152px → need 170px min
+  const nodeWidth = total <= 2 ? 260 : total <= 3 ? 230 : total <= 4 ? 210 : total <= 5 ? 180 : 155;
+  const color = AGENT_COLORS[agent] || "#7c3aed";
+
   return (
-    <div style={{ display: "flex", alignItems: "center", color: "var(--text-dim)", flexShrink: 0 }}>
-      <div style={{ width: 24, height: 1, background: "rgba(255,255,255,0.12)" }} />
-      <svg width="6" height="10" viewBox="0 0 6 10" fill="none">
-        <path d="M1 1l4 4-4 4" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinecap="round" />
+    <div
+      style={{
+        flexShrink: 0,
+        width: nodeWidth,
+        background: `${color}0d`,
+        border: `1px solid ${color}33`,
+        borderTop: `3px solid ${color}`,
+        padding: "1.125rem 1rem",
+        backdropFilter: "blur(8px)",
+        position: "relative",
+        transition: "background 0.18s, border-color 0.18s, transform 0.18s, box-shadow 0.18s",
+        cursor: "default",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background     = `${color}1a`;
+        e.currentTarget.style.borderColor    = `${color}66`;
+        e.currentTarget.style.transform      = "translateY(-3px)";
+        e.currentTarget.style.boxShadow      = `0 8px 24px ${color}22`;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background     = `${color}0d`;
+        e.currentTarget.style.borderColor    = `${color}33`;
+        e.currentTarget.style.transform      = "translateY(0)";
+        e.currentTarget.style.boxShadow      = "none";
+      }}
+    >
+      {/* Index badge */}
+      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color, marginBottom: "0.6rem", opacity: 0.75, letterSpacing: "0.06em" }}>
+        {String(index + 1).padStart(2, "0")}
+      </div>
+      {/* Agent name — nowrap so it never breaks mid-word */}
+      <div style={{
+        fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700,
+        color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden",
+        textOverflow: "ellipsis", letterSpacing: "-0.01em",
+      }}>
+        {agent}
+      </div>
+      {/* Color dot */}
+      <div style={{
+        width: 6, height: 6, borderRadius: "50%", background: color,
+        marginTop: "0.75rem", boxShadow: `0 0 6px ${color}`,
+      }} />
+    </div>
+  );
+}
+
+/* ── Endpoint Config ──────────────────────────────────────── */
+function EndpointConfig({ endpointUrl, setEndpointUrl, authHeader, setAuthHeader, urlError, setUrlError }) {
+  const [urlFocused, setUrlFocused] = useState(false);
+  const [authFocused, setAuthFocused] = useState(false);
+
+  return (
+    <div style={{
+      width: "100%",
+      marginBottom: "1.25rem",
+      border: "1px solid rgba(255,255,255,0.08)",
+      background: "rgba(255,255,255,0.02)",
+      backdropFilter: "blur(8px)",
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: "1rem 1.25rem",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}>
+        <div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+            Target Endpoint
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: "0.2rem" }}>
+            Where AgentProbe sends adversarial attacks
+          </div>
+        </div>
+        <button
+          onClick={() => { setEndpointUrl("http://localhost:8000/api/pipeline/run"); setUrlError(null); }}
+          style={{
+            fontFamily: "var(--mono)", fontSize: 10, background: "rgba(124,58,237,0.12)",
+            border: "1px solid rgba(124,58,237,0.3)", color: "var(--accent)",
+            padding: "0.25rem 0.625rem", cursor: "pointer", letterSpacing: "0.03em",
+          }}
+        >
+          use local
+        </button>
+      </div>
+
+      {/* Fields */}
+      <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <div>
+          <label style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", display: "block", marginBottom: "0.5rem" }}>
+            ENDPOINT URL <span style={{ color: "var(--fail)" }}>*</span>
+          </label>
+          <input
+            type="text"
+            value={endpointUrl}
+            onChange={(e) => { setEndpointUrl(e.target.value); setUrlError(null); }}
+            onFocus={() => setUrlFocused(true)}
+            onBlur={() => setUrlFocused(false)}
+            placeholder="https://your-api.com/pipeline/run"
+            style={{
+              width: "100%", background: "rgba(255,255,255,0.03)",
+              border: `1px solid ${urlError ? "rgba(239,68,68,0.5)" : urlFocused ? "rgba(124,58,237,0.6)" : "rgba(255,255,255,0.1)"}`,
+              borderRadius: 0, padding: "0.625rem 0.75rem",
+              color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12, outline: "none",
+              boxShadow: urlFocused ? "0 0 0 3px rgba(124,58,237,0.1)" : "none",
+              transition: "border-color 0.15s, box-shadow 0.15s",
+            }}
+          />
+          {urlError
+            ? <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--fail)", marginTop: "0.375rem" }}>{urlError}</p>
+            : <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: "0.375rem" }}>
+                POST <code style={{ color: "rgba(124,58,237,0.8)" }}>{"{"}"documents": {"{"}"..."{"}"}{"}"}</code> → returns <code style={{ color: "rgba(124,58,237,0.8)" }}>{"{"}"stages": {"{"}"..."{"}"}{"}"}</code>
+              </p>
+          }
+        </div>
+
+        <div>
+          <label style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", display: "block", marginBottom: "0.5rem" }}>
+            AUTHORIZATION HEADER&nbsp;<span style={{ color: "var(--text-dim)", fontSize: 9 }}>(OPTIONAL)</span>
+          </label>
+          <input
+            type="text"
+            value={authHeader}
+            onChange={(e) => setAuthHeader(e.target.value)}
+            onFocus={() => setAuthFocused(true)}
+            onBlur={() => setAuthFocused(false)}
+            placeholder="Bearer sk-..."
+            style={{
+              width: "100%", background: "rgba(255,255,255,0.03)",
+              border: `1px solid ${authFocused ? "rgba(124,58,237,0.6)" : "rgba(255,255,255,0.1)"}`,
+              borderRadius: 0, padding: "0.625rem 0.75rem",
+              color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12, outline: "none",
+              boxShadow: authFocused ? "0 0 0 3px rgba(124,58,237,0.1)" : "none",
+              transition: "border-color 0.15s, box-shadow 0.15s",
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Header ───────────────────────────────────────────────── */
+export function Header({ step }) {
+  const steps = ["Ingest", "Attack", "Results"];
+  return (
+    <header style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      padding: "0 2rem", height: 52, borderBottom: "1px solid rgba(255,255,255,0.06)",
+      flexShrink: 0, background: "rgba(10,10,10,0.8)", backdropFilter: "blur(12px)",
+      position: "sticky", top: 0, zIndex: 10,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+        <div style={{ width: 14, height: 14, background: "var(--accent)", borderRadius: 2, boxShadow: "0 0 8px rgba(124,58,237,0.6)" }} />
+        <span style={{ fontFamily: "var(--mono)", fontWeight: 700, fontSize: 14, color: "var(--text)", letterSpacing: "-0.02em" }}>AgentProbe</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+        {steps.map((s, i) => (
+          <React.Fragment key={s}>
+            <span style={{
+              fontFamily: "var(--mono)", fontSize: 12,
+              color: i === step ? "var(--text)" : i < step ? "var(--pass)" : "rgba(255,255,255,0.2)",
+              fontWeight: i === step ? 600 : 400,
+            }}>
+              {i < step ? "✓" : s}
+            </span>
+            {i < steps.length - 1 && <span style={{ color: "rgba(255,255,255,0.15)", fontSize: 12, margin: "0 2px" }}>›</span>}
+          </React.Fragment>
+        ))}
+      </div>
+      <div style={{ width: 140 }} />
+    </header>
+  );
+}
+
+/* ── Misc ─────────────────────────────────────────────────── */
+function UploadIcon({ active }) {
+  return (
+    <div style={{
+      margin: "0 auto 1.5rem",
+      width: 64, height: 64, borderRadius: 12,
+      background: active ? "rgba(124,58,237,0.2)" : "rgba(124,58,237,0.06)",
+      border: `1px solid ${active ? "rgba(124,58,237,0.6)" : "rgba(124,58,237,0.2)"}`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      boxShadow: active ? "0 0 24px rgba(124,58,237,0.3)" : "none",
+      transition: "all 0.2s",
+    }}>
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+        <path d="M13 18V6M13 6L8 11M13 6l5 5" stroke={active ? "#7c3aed" : "rgba(255,255,255,0.4)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M4 21h18" stroke={active ? "#7c3aed" : "rgba(255,255,255,0.2)"} strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     </div>
   );
 }
 
-function StatPill({ value, label, mono }) {
-  return (
-    <div style={S.statPill}>
-      <span style={{ color: "var(--text)", fontFamily: mono ? "var(--mono)" : "inherit", fontWeight: 600, fontSize: 13 }}>
-        {value}
-      </span>
-      <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{label}</span>
-    </div>
-  );
-}
-
-function UploadIcon({ active }) {
-  return (
-    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" style={{ margin: "0 auto 1.5rem", display: "block", opacity: active ? 1 : 0.4, transition: "opacity 0.15s" }}>
-      <rect width="48" height="48" rx="8" fill={active ? "var(--accent-dim)" : "rgba(255,255,255,0.04)"} />
-      <path d="M24 30V18M24 18l-5 5M24 18l5 5" stroke={active ? "var(--accent)" : "rgba(255,255,255,0.4)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16 34h16" stroke={active ? "var(--accent)" : "rgba(255,255,255,0.2)"} strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function Spinner() {
-  return (
-    <div style={{ width: 32, height: 32, margin: "0 auto", border: "2px solid rgba(255,255,255,0.08)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-  );
-}
-
-export function Header({ step }) {
-  const steps = ["Ingest", "Attack", "Results"];
-  return (
-    <header style={S.header}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
-        <div style={S.logoSquare} />
-        <span style={S.wordmark}>AgentProbe</span>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
-        {steps.map((s, i) => (
-          <React.Fragment key={s}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: i === step ? "var(--text)" : i < step ? "var(--pass)" : "var(--text-dim)", fontWeight: i === step ? 600 : 400 }}>
-              {i < step ? "✓" : s}
-            </span>
-            {i < steps.length - 1 && <span style={{ color: "var(--text-dim)", fontSize: 12 }}>›</span>}
-          </React.Fragment>
-        ))}
-      </div>
-      <div style={{ width: 160 }} />
-    </header>
-  );
+  return <div style={{ width: 28, height: 28, margin: "0 auto", border: "2px solid rgba(124,58,237,0.2)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />;
 }
 
 const S = {
-  page:         { display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg)", overflow: "hidden" },
-  header:       { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 2rem", height: 56, borderBottom: "1px solid var(--border)", flexShrink: 0, position: "sticky", top: 0, background: "var(--bg)", zIndex: 10 },
-  logoSquare:   { width: 16, height: 16, background: "var(--accent)", borderRadius: 2, flexShrink: 0 },
-  wordmark:     { fontFamily: "var(--mono)", fontWeight: 700, fontSize: 15, color: "var(--text)", letterSpacing: "-0.02em" },
-  body:         { flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "3rem 2rem" },
-  center:       { width: "100%", maxWidth: 640, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" },
-  eyebrow:      { fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "1rem" },
-  h1:           { fontSize: 36, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.03em", lineHeight: 1.15, marginBottom: "1rem" },
-  sub:          { fontSize: 15, color: "var(--text-muted)", lineHeight: 1.7, marginBottom: "2.5rem" },
-  dropzone:     { width: "100%", border: "1px dashed", borderRadius: 2, padding: "4rem 3rem", cursor: "pointer", transition: "all 0.15s", marginBottom: "1.5rem" },
-  dropTitle:    { fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: "0.5rem" },
-  dropSub:      { fontSize: 13, color: "var(--text-muted)" },
-  error:        { color: "var(--fail)", fontFamily: "var(--mono)", fontSize: 12, marginTop: "0.75rem", padding: "0.75rem 1rem", border: "1px solid rgba(239,68,68,0.2)", background: "var(--fail-dim)", width: "100%", textAlign: "left" },
-  pillRow:      { display: "flex", flexWrap: "wrap", gap: "0.5rem", justifyContent: "center" },
-  pill:         { fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", padding: "0.25rem 0.625rem", border: "1px solid var(--border)", borderRadius: 2 },
-  successBadge: { fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-muted)", padding: "0.25rem 0.75rem", border: "1px solid var(--border)", borderRadius: 2, marginBottom: "1.5rem" },
-  graph:        { display: "flex", alignItems: "center", gap: "0", width: "100%", justifyContent: "center", marginBottom: "2rem", flexWrap: "wrap" },
-  agentCard:    { background: "var(--surface)", boxShadow: "0 0 0 1px rgba(255,255,255,0.08)", padding: "1rem 1.25rem", borderLeft: "3px solid var(--accent)", textAlign: "left", minWidth: 140 },
-  agentIndex:   { fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)", marginBottom: "0.375rem" },
-  agentName:    { fontFamily: "var(--mono)", fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: "0.25rem" },
-  agentModel:   { fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" },
-  statsRow:     { display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "center", marginBottom: "2rem" },
-  statPill:     { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.375rem 0.75rem", border: "1px solid var(--border)", background: "var(--surface)", fontSize: 12, color: "var(--text-muted)" },
-  cta:          { width: "100%", padding: "0.875rem", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 0, fontWeight: 600, fontSize: 14, cursor: "pointer", letterSpacing: "0.01em", marginBottom: "0.75rem" },
-  ghost:        { background: "transparent", border: "none", color: "var(--text-muted)", fontSize: 13, cursor: "pointer", textDecoration: "underline" },
-  input:        { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 0, padding: "0.625rem 0.75rem", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12, width: "100%", outline: "none" },
+  page:        { display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg)", overflow: "hidden" },
+  body:        { flex: 1, overflowY: "auto", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3rem 1rem 4rem" },
+  col:         { width: "100%", maxWidth: 1100, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" },
+
+  eyebrow:     { fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: "1rem" },
+  h1:          { fontSize: 34, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.03em", lineHeight: 1.15, marginBottom: "1rem" },
+  sub:         { fontSize: 14, color: "var(--text-muted)", lineHeight: 1.7, marginBottom: "2rem", maxWidth: 480 },
+
+  dropzone:    { width: "100%", border: "1px dashed", borderRadius: 4, cursor: "pointer", transition: "all 0.2s", marginBottom: "1.5rem" },
+  dropTitle:   { fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: "0.5rem" },
+  dropSub:     { fontSize: 13, color: "var(--text-muted)" },
+
+  errMsg:      { color: "var(--fail)", fontFamily: "var(--mono)", fontSize: 11, padding: "0.625rem 0.875rem", border: "1px solid rgba(239,68,68,0.2)", background: "var(--fail-dim)", width: "100%", textAlign: "left", marginBottom: "1rem" },
+
+  featureRow:  { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem", width: "100%", marginTop: "0.5rem" },
+  featureCard: { background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: "1rem 0.75rem", textAlign: "left" },
+
+  detectBadge: { fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", padding: "0.2rem 0.75rem", border: "1px solid rgba(34,197,94,0.3)", background: "rgba(34,197,94,0.05)", borderRadius: 2, marginBottom: "1.25rem", letterSpacing: "0.04em" },
+
+  statsRow:    { display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "center", marginBottom: "1.75rem" },
+  statPill:    { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0.75rem", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)", fontSize: 12, color: "var(--text-muted)" },
+
+  cta:         { width: "100%", padding: "0.9rem", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 0, fontWeight: 600, fontSize: 14, cursor: "pointer", letterSpacing: "0.01em", marginBottom: "0.75rem", transition: "background 0.15s", boxShadow: "0 0 24px rgba(124,58,237,0.3)" },
+  ghost:       { background: "transparent", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", fontFamily: "var(--mono)" },
 };
